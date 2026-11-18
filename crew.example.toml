@@ -24,7 +24,7 @@ shell_timeout = 120       # seconds per shell command
 
 # MCP servers: their tools are given to the researcher agent
 [mcp.lab-websearch]
-url = "http://localhost:8000/mcp"       # Labs/lab4_mcp/mcp_server.py
+url = "http://localhost:8000/mcp"       # labs/lab4_mcp/mcp_server.py
 
 # Custom providers (built-in: agy, claude, codex, anthropic, gemini, openai, lmstudio, ollama)
 [providers.openrouter]

@@ -119,7 +119,7 @@ Tasten: **Shift+Tab** Modus · **Esc** abbrechen · **Ctrl+C** beenden.
 ### Researcher mit dem MCP-Server aus Lab 4
 
 ```bash
-../Labs/.venv/bin/python ../Labs/lab4_mcp/mcp_server.py      # Terminal 1
+labs/.venv/bin/python labs/lab4_mcp/mcp_server.py      # Terminal 1
 crew -w demo                                                 # Terminal 2 (crew.toml mit [mcp.lab-websearch])
 › Recherchiere, was FastMCP ist, und schreib eine NOTES.md
 ```
@@ -161,3 +161,9 @@ tests/
   Freigaben in manual/accept-edits und die Blockliste in auto.
 - CLI-Provider sind zustandslos. Pro Aufruf wird der Verlauf als Transkript mitgeschickt und bei Bedarf gekürzt.
 - Keine Sessions zum Fortsetzen, keine parallelen Agenten.
+
+## Labs (Vorarbeiten)
+
+`labs/` enthält die Labore, auf denen crew aufbaut: **RAG** (`labs/lab_rag/rag_pdf.py`, PDF-Fragen mit FAISS + agy)
+und **MCP** (`labs/lab4_mcp/mcp_server.py`, FastMCP-Server mit `web_search`, `fetch_page`, `search_pdf`, den der
+Researcher von crew nutzt). Setup und Nutzung: `labs/README.md`.
