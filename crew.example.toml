@@ -1,0 +1,36 @@
+# crew configuration: copy to ./crew.toml (in the workspace) or ~/.config/crew/crew.toml
+
+# Model for every agent unless overridden below. Format: "provider:model" ("provider" alone = its default model)
+default = "agy:gemini-3.8-flash-medium"
+
+# Start mode: manual | accept-edits | auto | plan   (switch at runtime with Shift+Tab or /mode)
+mode = "manual"
+
+# Per-agent overrides (any agent you leave out uses `default`)
+[agents]
+orchestrator = "claude:sonnet"          # Claude Code CLI login
+coder        = "codex"                  # Codex CLI login, its default model
+reviewer     = "agy:gemini-4-argon-medium"
+# clarifier  = "agy:gemini-3.8-flash-low"
+# planner    = "anthropic:claude-opus-5-5"   # needs ANTHROPIC_API_KEY or `ant auth login`
+# tester     = "ollama:qwen3"                # local model via Ollama
+# researcher = "gemini:gemini-flash-latest"  # needs GEMINI_API_KEY
+
+[limits]
+max_steps = 25            # tool calls per agent run
+max_delegations = 15      # delegations per user request
+max_review_rounds = 3     # reviewer runs per user request
+shell_timeout = 120       # seconds per shell command
+
+# MCP servers: their tools are given to the researcher agent
+[mcp.lab-websearch]
+url = "http://localhost:8000/mcp"       # Labs/lab4_mcp/mcp_server.py
+
+# Custom providers (built-in: agy, claude, codex, anthropic, gemini, openai, lmstudio, ollama)
+[providers.openrouter]
+type = "openai_compat"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+[providers.anthropic]
+effort = "medium"         # optional: low | medium | high | xhigh | max

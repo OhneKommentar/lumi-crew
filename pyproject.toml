@@ -1,0 +1,33 @@
+[project]
+name = "crew"
+version = "0.1.0"
+description = "Multi-agent coding CLI: orchestrator + clarifier, planner, coder, reviewer, tester, researcher"
+requires-python = ">=3.11"
+dependencies = [
+  "textual>=0.80",
+  "httpx",
+  "fastmcp>=2",
+  "anthropic",
+  "google-genai",
+  "openai",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+crew = "crew.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["crew*"]
+
+[tool.setuptools.package-data]
+"crew.agents" = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
