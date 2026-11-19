@@ -83,6 +83,7 @@ class CrewApp(App):
     CollapsibleTitle:hover, CollapsibleTitle:focus {{ background: {PANEL}; color: {FG}; }}
     #bottom {{ height: auto; dock: bottom; }}
     #activity {{ height: 1; padding: 0 2; display: none; }}
+    #queued {{ height: auto; padding: 0 2; display: none; }}
     #inputbox {{ height: 3; border: round {LINE}; margin: 0 1; padding: 0 1; background: {BG}; }}
     #caret {{ width: 2; color: {FG}; }}
     #prompt {{ border: none; height: 1; padding: 0; background: {BG}; }}
@@ -109,6 +110,10 @@ class CrewApp(App):
         self.started_at: float | None = None
         self.stack: list[str] = []          # currently running agents (orchestrator → specialist)
         self.frame = 0
+        self.history: list[str] = []        # submitted messages/commands, oldest first
+        self.hist_idx: int | None = None    # position while browsing with ↑/↓
+        self.draft = ""                     # what was typed before browsing started
+        self.queue: list[str] = []          # messages sent while the crew was busy
 
     # ------------------------------------------------------------------ layout
     def compose(self) -> ComposeResult:
@@ -116,6 +121,7 @@ class CrewApp(App):
         with Vertical(id="bottom"):
             yield Static(id="activity")
             yield Picker(id="picker")
+            yield Static(id="queued")
             with Horizontal(id="inputbox"):
                 yield Static("❯", id="caret")
                 yield PromptInput(placeholder=PLACEHOLDER, id="prompt")
@@ -259,6 +265,54 @@ class CrewApp(App):
             hint="enter bestätigen · y / a / n · esc = nein")
         return choice or "no"
 
+    # ------------------------------------------------------------------ history + queue
+    def update_queue_view(self):
+        view = self.query_one("#queued", Static)
+        if not self.queue:
+            view.display = False
+            return
+        t = Text()
+        for i, msg in enumerate(self.queue):
+            t.append("⏸ wartet  ", style=DIM)
+            t.append(msg if len(msg) < 90 else msg[:89] + "…", style=USER)
+            if i == len(self.queue) - 1:
+                t.append("   ↑ zum Bearbeiten", style=DIM)
+            if i < len(self.queue) - 1:
+                t.append("\n")
+        view.update(t)
+        view.display = True
+
+    def history_prev(self):
+        """↑: first pull back a queued message for editing, otherwise go back in the history."""
+        if self.queue and self.hist_idx is None and not self.prompt.value.strip():
+            self.prompt.set_text(self.queue.pop())
+            self.update_queue_view()
+            return
+        if not self.history:
+            return
+        if self.hist_idx is None:
+            self.draft = self.prompt.value
+            self.hist_idx = len(self.history) - 1
+        elif self.hist_idx > 0:
+            self.hist_idx -= 1
+        self.prompt.set_text(self.history[self.hist_idx])
+
+    def history_next(self):
+        """↓: forward in the history; past the newest entry the unsent draft comes back."""
+        if self.hist_idx is None:
+            return
+        self.hist_idx += 1
+        if self.hist_idx >= len(self.history):
+            self.hist_idx = None
+            self.prompt.set_text(self.draft)
+        else:
+            self.prompt.set_text(self.history[self.hist_idx])
+
+    def remember(self, text: str):
+        if text and (not self.history or self.history[-1] != text):
+            self.history.append(text)
+        self.hist_idx, self.draft = None, ""
+
     # ------------------------------------------------------------------ input
     def on_picker_closed(self, _):
         # the next picker step may already be open (agent → provider → model); keep its focus then
@@ -280,17 +334,29 @@ class CrewApp(App):
             return
         if not text:
             return
+        self.remember(text)
         if text.startswith("/"):
             await self.command(text)
             return
         if self.started_at:
-            self.notify("Die Crew arbeitet noch. Esc bricht ab.", severity="warning")
+            self.queue.append(text)               # runs automatically when the crew is done
+            self.update_queue_view()
             return
         self.add_user(text)
-        self.run_worker(self.process(text), group="agent", exclusive=True)
+        self.run_worker(self.run_queue(text), group="agent", exclusive=True)
+
+    async def run_queue(self, text: str):
+        """Process `text`, then every message that was queued meanwhile, in order."""
+        while text:
+            await self.process(text)
+            text = self.queue.pop(0) if self.queue else None
+            self.update_queue_view()
+            if text:
+                self.add_user(text)
 
     async def process(self, text: str):
         self.started_at = time.time()
+        self.prompt.placeholder = "Nächste Nachricht? Wird nach dem aktuellen Auftrag ausgeführt"
         try:
             result = await self.session.send(text)
             self.add_agent_message("orchestrator", self.session.spec_for("orchestrator"), result)
@@ -303,6 +369,7 @@ class CrewApp(App):
         finally:
             self.started_at = None
             self.stack = []
+            self.prompt.placeholder = PLACEHOLDER
             self.tick()
         if self.session.permissions.mode == "plan":
             choice = await self.picker.choose(

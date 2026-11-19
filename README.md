@@ -132,6 +132,10 @@ cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
   ollama, lmstudio**, mit Erreichbarkeits-Check) → Modell. Die Modell-Listen werden **live** geholt: `agy models`,
   `codex debug models`, `/v1/models` von Ollama/LM Studio. Für claude gibt es die Aliase opus/sonnet/haiku/fable,
   weil die CLI keinen Listen-Befehl hat und die Aliase immer auf die neueste Version zeigen.
+- **↑ / ↓** blättert durch deine letzten Nachrichten und Befehle. Der angefangene Text bleibt als Entwurf erhalten.
+- Nachrichten, die du schickst, während die Crew arbeitet, landen in einer **Warteschlange** (`⏸ wartet` über der
+  Eingabe) und laufen danach automatisch. Mit **↑** im leeren Eingabefeld holst du die letzte wartende Nachricht
+  zurück zum Bearbeiten.
 - `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
 - Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
 - Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.

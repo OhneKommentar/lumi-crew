@@ -128,3 +128,73 @@ async def test_slash_commands(tmp_path):
         assert app.session.permissions.mode == "auto"
         await pilot.press(*"/model coder claude:haiku", "enter")
         assert app.session.spec_for("coder") == "claude:haiku"
+
+
+async def test_history_up_down_keeps_draft(tmp_path):
+    app = app_with(tmp_path, {})
+    async with app.run_test() as pilot:
+        await pilot.press(*"/mode auto", "enter")
+        await pilot.press(*"/mode plan", "enter")
+        await pilot.press(*"entwurf")
+        await pilot.press("up")
+        assert app.prompt.value == "/mode plan"
+        await pilot.press("up")
+        assert app.prompt.value == "/mode auto"
+        await pilot.press("up")                                         # stays at the oldest
+        assert app.prompt.value == "/mode auto"
+        await pilot.press("down", "down")
+        assert app.prompt.value == "entwurf"                            # draft is back
+        assert not app.query_one("#suggest").display                    # recalled /commands don't pop the list
+
+
+class Gate(Provider):
+    """Orchestrator that blocks until released, so messages can be queued meanwhile."""
+
+    def __init__(self):
+        super().__init__("fake", "fake")
+        self.release = None
+        self.seen = []
+
+    async def complete(self, system, messages, tools):
+        import asyncio
+        if self.release is None:
+            self.release = asyncio.Event()
+        self.seen.append(messages[-1].content)
+        await self.release.wait()
+        self.release.clear()
+        return Reply(f"done: {messages[-1].content}")
+
+
+async def test_queue_while_busy_runs_afterwards(tmp_path):
+    app = CrewApp(tmp_path, Config(), "auto")
+    gate = Gate()
+    app.session.provider_for = lambda role: gate
+    async with app.run_test() as pilot:
+        await pilot.press(*"erste", "enter")
+        assert await wait_for(pilot, lambda: gate.release is not None)
+        await pilot.press(*"zweite", "enter")
+        assert app.queue == ["zweite"] and app.query_one("#queued").display
+        gate.release.set()
+        assert await wait_for(pilot, lambda: gate.seen == ["erste", "zweite"])
+        assert not app.queue
+        gate.release.set()
+        assert await wait_for(pilot, lambda: app.started_at is None)
+
+
+async def test_up_recalls_queued_message_for_editing(tmp_path):
+    app = CrewApp(tmp_path, Config(), "auto")
+    gate = Gate()
+    app.session.provider_for = lambda role: gate
+    async with app.run_test() as pilot:
+        await pilot.press(*"erste", "enter")
+        assert await wait_for(pilot, lambda: gate.release is not None)
+        await pilot.press(*"zweite", "enter")
+        await pilot.press("up")
+        assert app.prompt.value == "zweite" and app.queue == []
+        assert not app.query_one("#queued").display
+        await pilot.press("backspace", *"!", "enter")                  # edit and re-queue
+        assert app.queue == ["zweit!"]
+        gate.release.set()
+        assert await wait_for(pilot, lambda: gate.seen == ["erste", "zweit!"])
+        gate.release.set()
+        assert await wait_for(pilot, lambda: app.started_at is None)

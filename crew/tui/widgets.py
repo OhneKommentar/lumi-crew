@@ -192,8 +192,20 @@ class PromptInput(Input):
     def action_suggest(self, step: int):
         lst = self.suggest_list
         if not lst.display or not lst.option_count:
-            raise SkipAction()
+            # no suggestions open: ↑/↓ walk through queued + previous messages (handled by the app)
+            if step < 0:
+                self.app.history_prev()
+            else:
+                self.app.history_next()
+            return
         lst.highlighted = ((lst.highlighted or 0) + step) % lst.option_count
+
+    def set_text(self, text: str):
+        """Replace the content without opening the suggestion list for recalled /commands."""
+        with self.prevent(Input.Changed):
+            self.value = text
+        self.cursor_position = len(text)
+        self.suggest_list.display = False
 
     def action_complete(self):
         cmd = self.selected_command()
