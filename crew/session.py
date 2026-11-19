@@ -1,6 +1,7 @@
 """A crew session: workspace + config + permissions + agents, driven by a UI."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from .agents.base import Agent
@@ -31,9 +32,16 @@ class Session:
         self.review_rounds = 0
         self.orchestrator: Agent | None = None
         self.active: set[str] = set()                # running agent instance names
+        self._start_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------ setup
     async def start(self):
+        """Load MCP tools and create the orchestrator (idempotent, safe to call concurrently)."""
+        async with self._start_lock:
+            if self.orchestrator is None:
+                await self._start()
+
+    async def _start(self):
         if self.config.mcp:
             self.mcp_tools, warnings = await load_mcp_tools(self.config.mcp)
             for w in warnings:

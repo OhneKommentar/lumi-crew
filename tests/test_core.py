@@ -342,3 +342,25 @@ def test_saved_choice_beats_crew_toml_and_reset_forgets(tmp_path, isolated_state
 def test_broken_state_file_is_ignored(tmp_path, isolated_state):
     isolated_state.write_text("{ not json")
     assert Session(tmp_path, Config(), RecUI()).overrides == {}
+
+
+def test_chat_roundtrip(tmp_path, isolated_state):
+    from crew import chats
+    c = chats.new_chat(tmp_path)
+    c.entries = [{"kind": "user", "text": "Bau mir   ein\nwc-Tool"}, {"kind": "agent", "agent": "orchestrator", "text": "ok"}]
+    msgs = [Message("user", "Bau"), Message("assistant", "", [ToolCall("1", "delegate", {"agent": "coder"})], raw={"x": 1}),
+            Message("tool", "done", tool_call_id="1", name="delegate")]
+    chats.save(c, msgs)
+    back = chats.load(c.id)
+    assert back.title == "Bau mir ein wc-Tool" and back.user_turns == 1
+    restored = [chats.message_from_dict(d) for d in back.messages]
+    assert restored[1].tool_calls[0].args == {"agent": "coder"} and restored[1].raw is None
+    assert restored[2].tool_call_id == "1"
+    other = chats.new_chat(tmp_path / "elsewhere")
+    other.entries = [{"kind": "user", "text": "x"}]
+    chats.save(other)
+    assert [x.id for x in chats.list_chats(tmp_path)] == [c.id]
+    assert len(chats.list_chats()) == 2
+    empty = chats.new_chat(tmp_path)
+    chats.save(empty)                                      # chats without entries are not listed
+    assert len(chats.list_chats(tmp_path)) == 1

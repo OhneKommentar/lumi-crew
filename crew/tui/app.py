@@ -15,7 +15,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Collapsible, Input, Markdown, OptionList, Static
 
-from .. import usage
+from .. import chats, usage
 from ..agents.roles import ROLES
 from ..config import MODES, Config
 from ..events import Event, UI
@@ -53,7 +53,9 @@ HELP = """**Befehle**: `/` tippen zeigt alle Befehle, ↑↓ und Tab vervollstä
 | `/mcp` | geladene MCP-Tools |
 | `/model <agent\\|all> <provider:model>` | Modell direkt setzen |
 | `/model reset` | gespeicherte Modellwahl löschen |
-| `/clear` · `/quit` | Verlauf leeren · beenden |
+| `/resume` | frühere Chats anzeigen und fortsetzen |
+| `/new` | neuen Chat beginnen (der alte bleibt gespeichert) |
+| `/quit` | beenden |
 
 **Tasten:** ↑↓ Verlauf / wartende Nachricht bearbeiten · Shift+Tab Modus · Esc abbrechen · Ctrl+C beenden
 """
@@ -120,8 +122,11 @@ class CrewApp(App):
         Binding("ctrl+c", "quit", show=False, priority=True),
     ]
 
-    def __init__(self, workspace: Path, config: Config, mode: str | None = None, use_saved: bool = True):
+    def __init__(self, workspace: Path, config: Config, mode: str | None = None, use_saved: bool = True,
+                 start: str | None = None):
         super().__init__()
+        self.start_action = start           # None | "continue" | "resume"
+        self.chat: chats.Chat | None = None  # created with the first message, saved after every turn
         self.session = Session(workspace, config, TuiUI(self), mode=mode, use_saved=use_saved)
         self.pending_answer: asyncio.Future | None = None
         self.started_at: float | None = None
@@ -179,15 +184,51 @@ class CrewApp(App):
             saved = ", ".join(f"{r} → {spec}" for r, spec in s.saved_models.items())
             welcome.append(f"\n  gespeichert {saved}", style=DIM)
         self.transcript.mount(Static(welcome, id="welcome"))
-        self.run_worker(self.session.start(), group="setup")
+        self.run_worker(self.startup(), group="setup")
+
+    async def startup(self):
+        await self.session.start()
+        if self.start_action == "continue":
+            last = chats.list_chats(self.session.workspace)
+            if last:
+                await self.resume_chat(last[0])
+            else:
+                self.notify("In diesem Ordner gibt es noch keinen gespeicherten Chat.")
+        elif self.start_action == "resume":
+            await self.pick_chat()
 
     # ------------------------------------------------------------------ transcript helpers
     def add(self, widget):
         self.transcript.mount(widget)
         self.transcript.scroll_end(animate=False)
 
+    def show(self, entry: dict, record: bool = True):
+        """Render one conversation entry; recorded entries are saved with the chat and replayed on resume."""
+        k = entry["kind"]
+        if k == "user":
+            self.add(Static(Text("❯ ", style=f"bold {USER}") + Text(entry["text"], style=USER), classes="user"))
+        elif k == "agent":
+            box = Vertical(classes="msg")
+            self.add(box)
+            box.mount(Static(self.who(entry["agent"], entry.get("model", "")), classes="who"))
+            box.mount(Markdown(entry.get("text") or "_(keine Antwort)_"))
+            self.transcript.scroll_end(animate=False)
+        elif k == "question":
+            box = Vertical(classes="msg")
+            self.add(box)
+            box.mount(Static(self.who(entry["agent"], "fragt"), classes="who"))
+            box.mount(Markdown(entry["text"]))
+        elif k == "who":
+            self.add(Static(self.who(entry["agent"], entry.get("extra", "")), classes="msg who"))
+        elif k == "result":
+            self.add(Collapsible(Markdown(entry.get("text") or "_(leer)_"), title=entry["title"], collapsed=True))
+        elif k == "line":
+            self.add(Static(Text(" " * entry.get("indent", 0)) + Text.from_markup(entry["markup"]), classes="line"))
+        if record and self.chat is not None:
+            self.chat.entries.append(entry)
+
     def add_line(self, text: Text, indent: int = 0):
-        self.add(Static(Text(" " * indent) + text, classes="line"))
+        self.show({"kind": "line", "markup": text.markup, "indent": indent})
 
     def who(self, agent: str, extra: str = "", indent: int = 0) -> Text:
         t = Text(" " * indent)
@@ -198,14 +239,22 @@ class CrewApp(App):
         return t
 
     def add_agent_message(self, agent: str, model: str, markdown: str):
-        box = Vertical(classes="msg")
-        self.add(box)
-        box.mount(Static(self.who(agent, model), classes="who"))
-        box.mount(Markdown(markdown or "_(keine Antwort)_"))
-        self.transcript.scroll_end(animate=False)
+        self.show({"kind": "agent", "agent": agent, "model": model, "text": markdown})
 
     def add_user(self, text: str):
-        self.add(Static(Text("❯ ", style=f"bold {USER}") + Text(text, style=USER), classes="user"))
+        if self.chat is None:
+            self.chat = chats.new_chat(self.session.workspace)
+        self.show({"kind": "user", "text": text})
+        self.save_chat()
+
+    def save_chat(self):
+        if self.chat is None or not self.chat.entries:
+            return
+        o = self.session.orchestrator
+        try:
+            chats.save(self.chat, o.messages if o else [])
+        except OSError as e:
+            self.notify(f"Chat konnte nicht gespeichert werden: {e}", severity="error")
 
     # ------------------------------------------------------------------ status + spinner
     def update_status(self):
@@ -277,7 +326,7 @@ class CrewApp(App):
                 return
             self.running.append(e.agent)
             model = e.data.get("model", "")
-            self.add(Static(self.who(e.agent, model), classes="msg who"))
+            self.show({"kind": "who", "agent": e.agent, "extra": model})
             first = next((ln for ln in e.text.strip().splitlines() if ln.strip()), "")
             self.add_line(Text(f"⎿  {first[:110]}", style=DIM), indent=2)
             self.open_pane(e.agent, model, e.text)
@@ -291,8 +340,7 @@ class CrewApp(App):
                         "PASS": ("✔ pass", True), "FAIL": ("✗ fail", False)}.get(verdict, ("✔ fertig", True))
             if e.text.startswith("ERROR"):
                 mark, ok = "✗ Fehler", False
-            self.add(Collapsible(Markdown(e.text or "_(leer)_"), title=f"⎿  {e.agent}: {mark} · Antwort anzeigen",
-                                 collapsed=True))
+            self.show({"kind": "result", "title": f"⎿  {e.agent}: {mark} · Antwort anzeigen", "text": e.text})
             self.close_pane(e.agent, mark, ok)
         elif e.kind == "tool_call":
             if e.data.get("tool") in ("delegate", "ask_user"):      # shown as agent window / question instead
@@ -320,10 +368,7 @@ class CrewApp(App):
     # ------------------------------------------------------------------ questions, approvals, limits
     async def ask(self, agent: str, question: str, options: list[str]) -> str:
         async with self.ui_lock:
-            box = Vertical(classes="msg")
-            self.add(box)
-            box.mount(Static(self.who(agent, "fragt"), classes="who"))
-            box.mount(Markdown(question))
+            self.show({"kind": "question", "agent": agent, "text": question})
             if options:
                 opts = [(o, row(o, width=0, number=i)) for i, o in enumerate(options, start=1)]
                 opts.append((CUSTOM, row("✎ Eigene Antwort schreiben …", width=0, number=len(opts) + 1)))
@@ -494,6 +539,7 @@ class CrewApp(App):
             self.running = []
             self.prompt.placeholder = PLACEHOLDER
             self.tick()
+            self.save_chat()
         if self.session.permissions.mode == "plan":
             async with self.ui_lock:
                 choice = await self.picker.choose(
@@ -599,6 +645,65 @@ class CrewApp(App):
             self.session.permissions.set_mode(mode)
             self.update_status()
 
+    async def resume_chat(self, chat: "chats.Chat"):
+        """Show a saved chat again and let the orchestrator continue from where it stopped."""
+        await self.session.start()
+        self.save_chat()                                   # keep the current one first
+        await self.transcript.remove_children()
+        self.chat = chat
+        for entry in chat.entries:
+            self.show(entry, record=False)
+        self.session.orchestrator.messages = [chats.message_from_dict(d) for d in chat.messages]
+        here = str(self.session.workspace)
+        note = Text.assemble(("↺ ", ACCENT), ("Chat fortgesetzt", f"bold {FG}"),
+                             (f" · {chats.ago(chat.updated)} · {chat.user_turns} Nachrichten", DIM))
+        self.add(Static(note, classes="msg"))
+        if chat.workspace != here:
+            self.add_line(Text(f"⚠ Der Chat stammt aus {chat.workspace}; crew arbeitet weiter in {here}.",
+                               style=WARN))
+
+    async def pick_chat(self):
+        here = str(self.session.workspace)
+        show_all = False
+        async with self.ui_lock:
+            while True:
+                found = chats.list_chats(None if show_all else here)
+                others = 0 if show_all else len(chats.list_chats()) - len(found)
+                if not found and not others:
+                    self.notify("Noch keine gespeicherten Chats.")
+                    return
+                home = str(Path.home())
+                opts = []
+                for i, c in enumerate(found[:30], start=1):
+                    detail = f"{chats.ago(c.updated)} · {c.user_turns} Nachr."
+                    if show_all:
+                        detail += f" · {c.workspace.replace(home, '~')}"
+                    current = self.chat is not None and c.id == self.chat.id
+                    opts.append((c.id, row((c.title or "(ohne Titel)")[:52], detail, width=54,
+                                           number=i if i <= 9 else None, current=current)))
+                if others:
+                    opts.append(("__all__", row(f"Alle Workspaces anzeigen ({others} weitere)", width=0)))
+                title = "Chat fortsetzen" + ("" if show_all else f" · {here.replace(home, '~')}")
+                choice = await self.picker.choose(Text(title, style=f"bold {FG}"), opts,
+                                                  hint="↑↓ auswählen · enter fortsetzen · esc schließen")
+                if choice == "__all__":
+                    show_all = True
+                    continue
+                break
+        if choice:
+            try:
+                await self.resume_chat(chats.load(choice))
+            except (OSError, ValueError) as e:
+                self.notify(f"Chat nicht lesbar: {e}", severity="error")
+
+    async def new_chat(self):
+        self.save_chat()
+        self.chat = None
+        self.session.reset()
+        await self.transcript.remove_children()
+        self.add(Static(Text.assemble(("✻ ", ACCENT), ("Neuer Chat", f"bold {FG}"),
+                                      ("  ·  /resume zeigt frühere Chats", DIM)), classes="msg"))
+
     async def pick_usage(self):
         s = self.session
         names = PICKER_PROVIDERS + [n for n in usage.USAGE if n not in PICKER_PROVIDERS]
@@ -625,11 +730,11 @@ class CrewApp(App):
     async def command(self, text: str):
         cmd, *args = text.split()
         s = self.session
-        picker_cmds = {"/agent", "/usage", "/mode"} | ({"/model"} if not args else set())
+        picker_cmds = {"/agent", "/usage", "/mode", "/resume"} | ({"/model"} if not args else set())
         if cmd in picker_cmds and (self.ui_lock.locked() or self.picker.active):
             self.notify("Erst die offene Auswahl beantworten.", severity="warning")
             return
-        if self.started_at and cmd in {"/agent", "/model", "/clear"}:
+        if self.started_at and cmd in {"/agent", "/model", "/clear", "/new", "/resume"}:
             self.notify("Während die Crew arbeitet nicht möglich.", severity="warning")
             return
         try:
@@ -643,6 +748,10 @@ class CrewApp(App):
                     self.run_worker(self.pick_mode(), group="ui", exclusive=True)
             elif cmd == "/agent" or (cmd == "/model" and not args):
                 self.run_worker(self.pick_agent_model(), group="ui", exclusive=True)
+            elif cmd == "/resume":
+                self.run_worker(self.pick_chat(), group="ui", exclusive=True)
+            elif cmd in ("/new", "/clear"):
+                await self.new_chat()
             elif cmd == "/usage":
                 self.run_worker(self.pick_usage(), group="ui", exclusive=True)
             elif cmd == "/model" and args == ["reset"]:
@@ -671,9 +780,6 @@ class CrewApp(App):
                 self.add(Markdown("\n".join(f"- `{t.name}`: {t.description}" for t in tools)
                                   or "Keine MCP-Tools geladen (in `crew.toml` unter `[mcp.<name>]` konfigurieren).",
                                   classes="msg"))
-            elif cmd == "/clear":
-                s.reset()
-                await self.transcript.remove_children()
             elif cmd in ("/quit", "/exit"):
                 self.exit()
             else:

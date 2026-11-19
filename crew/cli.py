@@ -5,6 +5,8 @@ crew: multi-agent coding CLI.
   crew -w ./proj --mode auto   choose workspace and start mode
   crew -p "build X"            headless: run one request, print the result
   crew providers               show which providers are usable
+  crew -c / crew --resume      continue the last chat / pick a saved chat
+  crew chats [-a]              list saved chats (of this folder / all)
 """
 from __future__ import annotations
 
@@ -120,23 +122,60 @@ def cmd_providers(cfg, saved: dict | None = None):
     console.print(t2)
 
 
-async def run_headless(workspace, cfg, mode, prompt, use_saved=True):
+async def run_headless(workspace, cfg, mode, prompt, use_saved=True, cont=False):
+    from . import chats
     from .session import Session
     ui = ConsoleUI(interactive=sys.stdin.isatty(), custom=cfg.providers)
     session = Session(workspace, cfg, ui, mode=mode, use_saved=use_saved)
+    await session.start()
+    previous = chats.list_chats(session.workspace) if cont else []
+    chat = previous[0] if previous else chats.new_chat(session.workspace)
+    if previous:
+        session.orchestrator.messages = [chats.message_from_dict(d) for d in chat.messages]
+        console.print(f"[dim]↺ continuing chat “{chat.title}” ({chats.ago(chat.updated)})[/]")
     console.print(f"[dim]workspace {session.workspace} · mode {session.permissions.mode}[/]")
+    chat.entries.append({"kind": "user", "text": prompt})
     result = await session.send(prompt)
-    console.print(Panel(Markdown(result or "(no answer)"), title="crew", border_style="magenta"))
+    chat.entries.append({"kind": "agent", "agent": "orchestrator", "model": session.spec_for("orchestrator"),
+                         "text": result})
+    chats.save(chat, session.orchestrator.messages)
+    console.print(Panel(Markdown(result or "(no answer)"), title="crew", border_style=AGENT_COLOR))
+
+
+def cmd_chats(workspace: Path, show_all: bool):
+    from rich.table import Table
+    from . import chats
+    found = chats.list_chats(None if show_all else workspace)
+    if not found:
+        console.print("[dim]Keine gespeicherten Chats" + ("" if show_all else " in diesem Ordner (crew chats -a zeigt alle)")
+                      + ".[/]")
+        return
+    t = Table(title="crew chats", show_lines=False)
+    t.add_column("zuletzt"), t.add_column("Nachr.", justify="right"), t.add_column("Titel")
+    if show_all:
+        t.add_column("workspace")
+    home = str(Path.home())
+    for c in found:
+        cells = [chats.ago(c.updated), str(c.user_turns), c.title or "(ohne Titel)"]
+        if show_all:
+            cells.append(c.workspace.replace(home, "~"))
+        t.add_row(*cells)
+    console.print(t)
+    console.print("[dim]Fortsetzen: crew -c (letzter Chat) · crew --resume (Auswahl) · in der TUI /resume[/]")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="crew", description="Multi-agent coding CLI")
-    ap.add_argument("command", nargs="?", choices=["providers"], help="`providers`: list usable providers")
+    ap.add_argument("command", nargs="?", choices=["providers", "chats"],
+                    help="`providers`: list usable providers · `chats`: list saved chats")
     ap.add_argument("-w", "--workspace", default=".", help="project directory (default: current dir)")
     ap.add_argument("-p", "--print", dest="prompt", help="run one request headless and print the result")
     ap.add_argument("--mode", choices=MODES, help="permission mode at start")
     ap.add_argument("--model", help='use this "provider:model" for all agents, e.g. claude:sonnet')
-    ap.add_argument("-c", "--config", help="path to crew.toml")
+    ap.add_argument("--config", help="path to crew.toml")
+    ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last chat of this folder")
+    ap.add_argument("--resume", action="store_true", help="pick a saved chat to continue")
+    ap.add_argument("-a", "--all", action="store_true", help="with `chats`: show chats of all folders")
     args = ap.parse_args(argv)
 
     workspace = Path(args.workspace).expanduser()
@@ -151,14 +190,18 @@ def main(argv=None):
 
     if args.command == "providers":
         return cmd_providers(cfg, {} if args.model else load_saved_models())
+    if args.command == "chats":
+        return cmd_chats(workspace.resolve(), args.all)
     if args.prompt:
         try:
-            asyncio.run(run_headless(workspace, cfg, args.mode, args.prompt, use_saved=not args.model))
+            asyncio.run(run_headless(workspace, cfg, args.mode, args.prompt, use_saved=not args.model,
+                                     cont=args.cont))
         except KeyboardInterrupt:
             console.print("\n[red]abgebrochen[/]")
         return
     from .tui.app import CrewApp
-    CrewApp(workspace, cfg, args.mode, use_saved=not args.model).run()
+    start = "continue" if args.cont else "resume" if args.resume else None
+    CrewApp(workspace, cfg, args.mode, use_saved=not args.model, start=start).run()
 
 
 if __name__ == "__main__":

@@ -40,7 +40,8 @@ COMMANDS = [
     ("/agents", "Übersicht: Agenten und ihre Modelle"),
     ("/providers", "verfügbare Provider prüfen"),
     ("/mcp", "geladene MCP-Tools"),
-    ("/clear", "Verlauf leeren"),
+    ("/resume", "frühere Chats anzeigen und fortsetzen"),
+    ("/new", "neuen Chat beginnen"),
     ("/help", "Hilfe"),
     ("/quit", "crew beenden"),
 ]

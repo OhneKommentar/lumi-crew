@@ -117,7 +117,10 @@ crew providers                       # welche Provider sind nutzbar?
 crew -w ~/mein-projekt               # TUI starten
 crew -w ~/mein-projekt --mode plan   # erst nur planen
 crew -p "Bau X" --mode auto -w demo  # headless, ein Auftrag
-crew --model claude:sonnet           # alle Agenten auf ein Modell
+crew --model claude:sonnet           # alle Agenten auf ein Modell (nur dieser Lauf)
+crew -c                              # letzten Chat in diesem Ordner fortsetzen
+crew --resume                        # gespeicherten Chat auswählen
+crew chats -a                        # alle gespeicherten Chats auflisten
 cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
 ```
 
@@ -151,6 +154,12 @@ cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
   `~/.config/crew/state.json` und gilt beim nächsten Start wieder, in jedem Projektordner. Gespeicherte Auswahl schlägt
   `crew.toml [agents]`. `crew --model X` gilt nur für diesen einen Lauf und ändert nichts. `/model reset` löscht die
   gespeicherte Auswahl. Ein Wechsel wegen Usage-Limit gilt nur für die laufende Session.
+- **Chats werden gespeichert** (`~/.config/crew/chats/`), nach jeder Nachricht: der sichtbare Verlauf und der
+  Gesprächsstand des Orchestrators. **`/resume`** zeigt die Chats dieses Ordners (Titel, wann, wie viele Nachrichten,
+  optional alle Ordner) und setzt den gewählten fort. **`/new`** beginnt einen neuen Chat, der alte bleibt erhalten.
+  Von außen: `crew -c` setzt den letzten Chat des Ordners fort, `crew --resume` öffnet die Auswahl,
+  `crew chats` (`-a` für alle Ordner) listet sie. Auch `crew -p` speichert, und `crew -c -p "…"` macht im letzten
+  Chat weiter.
 - `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
 - Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
 - Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.

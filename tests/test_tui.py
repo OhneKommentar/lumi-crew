@@ -353,3 +353,53 @@ async def test_agent_windows_share_height(tmp_path):
         assert await wait_for(pilot, lambda: app.started_at is None)
         await pilot.pause(0.2)
         assert all(p.has_class("done") and p.size.height <= 3 for p in app.panes.values())
+
+
+async def test_chat_is_saved_and_resumed(tmp_path):
+    from crew import chats
+
+    class Echo(Provider):
+        def __init__(self):
+            super().__init__("fake", "fake")
+
+        async def complete(self, system, messages, tools):
+            users = [m.content for m in messages if m.role == "user"]
+            return Reply(f"Antwort {len(users)}: {users[-1]}")
+
+    app = CrewApp(tmp_path, Config(), "auto")
+    app.session.provider_for = lambda r: Echo()
+    async with app.run_test() as pilot:
+        await pilot.press(*"erste Frage", "enter")
+        assert await wait_for(pilot, lambda: app.started_at is None and app.chat is not None)
+        await pilot.pause(0.2)
+    saved = chats.list_chats(tmp_path)
+    assert len(saved) == 1 and saved[0].title == "erste Frage"
+    assert any(e["kind"] == "agent" and "Antwort 1" in e["text"] for e in saved[0].entries)
+
+    app2 = CrewApp(tmp_path, Config(), "auto")             # "next start"
+    app2.session.provider_for = lambda r: Echo()
+    async with app2.run_test() as pilot:
+        await pilot.press(*"/resume", "enter")
+        assert await wait_for(pilot, lambda: app2.picker.active)
+        await pilot.press("1")
+        assert await wait_for(pilot, lambda: app2.chat is not None and app2.chat.id == saved[0].id)
+        assert any("erste Frage" in str(w.render()) for w in app2.query(".user"))
+        await pilot.press(*"zweite Frage", "enter")
+        assert await wait_for(pilot, lambda: app2.started_at is None and app2.chat.user_turns == 2)
+        await pilot.pause(0.2)
+        last = [m.content for m in app2.session.orchestrator.messages if m.role == "assistant"][-1]
+        assert last == "Antwort 2: zweite Frage"                    # orchestrator remembered the first turn
+    assert len(chats.list_chats(tmp_path)) == 1                     # same chat, not a new one
+
+
+async def test_continue_flag_and_new_chat(tmp_path):
+    from crew import chats
+    c = chats.new_chat(tmp_path)
+    c.entries = [{"kind": "user", "text": "alter Chat"}]
+    chats.save(c)
+    app = CrewApp(tmp_path, Config(), "auto", start="continue")
+    async with app.run_test() as pilot:
+        assert await wait_for(pilot, lambda: app.chat is not None and app.chat.id == c.id)
+        await pilot.press(*"/new", "enter")
+        await pilot.pause(0.2)
+        assert app.chat is None and app.session.orchestrator.messages == []
