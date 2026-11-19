@@ -11,6 +11,9 @@ class LumiCrew < Formula
     python = Formula["python@3.14"].opt_bin/"python3.14"
     system python, "-m", "venv", libexec
     system libexec/"bin/pip", "install", "--no-cache-dir", "--disable-pip-version-check", buildpath
+    # watchfiles (optional reload helper pulled in by the MCP stack, unused by Lumi Crew) ships a Rust
+    # extension without header padding, which breaks Homebrew's dylib relocation.
+    system libexec/"bin/pip", "uninstall", "-y", "--disable-pip-version-check", "watchfiles"
     bin.install_symlink libexec/"bin/lumi-crew"
   end
 
