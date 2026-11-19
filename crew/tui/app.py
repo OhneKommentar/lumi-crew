@@ -84,7 +84,7 @@ class CrewApp(App):
     Screen {{ background: {BG}; color: {FG}; }}
     #main {{ height: 1fr; }}
     #transcript {{ width: 1fr; padding: 1 2 0 2; scrollbar-size-vertical: 1; scrollbar-color: {PANEL}; }}
-    #panes {{ width: 46%; max-width: 90; display: none; padding: 1 1 0 0; scrollbar-size-vertical: 1;
+    #panes {{ width: 46%; max-width: 90; display: none; padding: 1 1 0 0; overflow-y: auto; scrollbar-size-vertical: 1;
               scrollbar-color: {PANEL}; }}
     #welcome {{ border: round {LINE}; padding: 0 1; width: auto; max-width: 100%; margin-bottom: 1; }}
     .msg {{ height: auto; margin-top: 1; }}
@@ -138,7 +138,7 @@ class CrewApp(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id="main"):
             yield VerticalScroll(id="transcript")
-            yield VerticalScroll(id="panes")
+            yield Vertical(id="panes")
         with Vertical(id="bottom"):
             yield Static(id="activity")
             yield Picker(id="picker")
@@ -155,7 +155,7 @@ class CrewApp(App):
         self.register_theme(CREW_THEME)
         self.theme = "crew"
         self.transcript = self.query_one("#transcript", VerticalScroll)
-        self.pane_box = self.query_one("#panes", VerticalScroll)
+        self.pane_box = self.query_one("#panes", Vertical)
         self.prompt = self.query_one("#prompt", PromptInput)
         self.picker = self.query_one(Picker)
         self.activity = self.query_one("#activity", Static)

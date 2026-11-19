@@ -322,3 +322,34 @@ async def test_agent_picker_choice_survives_restart(tmp_path, monkeypatch):
     restarted = CrewApp(tmp_path, Config(), "manual")
     assert restarted.session.spec_for("reviewer") == "claude:model-a"
     assert CrewApp(tmp_path, Config(), "manual", use_saved=False).session.spec_for("reviewer") == Config().default
+
+
+async def test_agent_windows_share_height(tmp_path):
+    import asyncio as aio
+    gate = aio.Event()
+
+    class Three(Provider):
+        def __init__(self):
+            super().__init__("fake", "fake")
+            self.orch = [Reply("", [ToolCall(str(i), "delegate", {"agent": r, "task": r})
+                                    for i, r in enumerate(["planner", "researcher", "coder"])]), Reply("end")]
+
+        async def complete(self, system, messages, tools):
+            if "**Orchestrator**" in system:
+                return self.orch.pop(0)
+            await gate.wait()
+            return Reply("ok")
+
+    app = CrewApp(tmp_path, Config(), "auto")
+    three = Three()
+    app.session.provider_for = lambda role: three
+    async with app.run_test(size=(140, 46)) as pilot:
+        await pilot.press(*"go", "enter")
+        assert await wait_for(pilot, lambda: len(app.panes) == 3)
+        await pilot.pause(0.3)
+        heights = [p.size.height for p in app.panes.values()]
+        assert max(heights) - min(heights) <= 1 and sum(heights) > 25        # equal thirds of the column
+        gate.set()
+        assert await wait_for(pilot, lambda: app.started_at is None)
+        await pilot.pause(0.2)
+        assert all(p.has_class("done") and p.size.height <= 3 for p in app.panes.values())

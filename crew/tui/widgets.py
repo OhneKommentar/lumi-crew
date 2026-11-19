@@ -225,19 +225,25 @@ class PromptInput(Input):
 
 # ----------------------------------------------------------------------------- agent window (right side)
 class AgentPane(Vertical):
-    """Live window for one running sub-agent: the task it was given and what it is doing."""
+    """Live window for one running sub-agent: the task it was given and what it is doing.
+
+    Running windows share the right column equally (height 1fr each); finished windows shrink to a
+    compact summary while they linger, so the running ones keep the space."""
 
     DEFAULT_CSS = f"""
-    AgentPane {{ height: auto; max-height: 26; border: round {LINE}; border-title-color: {FG};
+    AgentPane {{ height: 1fr; min-height: 8; border: round {LINE}; border-title-color: {FG};
                  border-subtitle-color: {DIM}; padding: 0 1; margin: 0 0 1 0; background: {BG}; }}
-    AgentPane.done {{ border: round {DIM}; }}
+    AgentPane.done {{ height: 3; min-height: 3; border: round {DIM}; }}
+    AgentPane.done .pane-label, AgentPane.done .pane-task {{ display: none; }}
+    AgentPane.done .pane-logbox {{ height: 1; scrollbar-size-vertical: 0; }}
     AgentPane .pane-label {{ color: {DIM}; height: 1; }}
-    AgentPane .pane-task {{ height: auto; max-height: 12; background: {BG}; }}
+    AgentPane .pane-task {{ height: auto; max-height: 45%; background: {BG}; }}
     AgentPane .pane-task Markdown {{ padding: 0; margin: 0; }}
-    AgentPane .pane-log {{ height: auto; color: {DIM}; margin-top: 1; }}
+    AgentPane .pane-logbox {{ height: 1fr; background: {BG}; scrollbar-size-vertical: 1; scrollbar-color: {PANEL}; }}
+    AgentPane .pane-log {{ height: auto; color: {DIM}; }}
     """
 
-    MAX_LINES = 10
+    MAX_LINES = 300
 
     def __init__(self, agent: str, model: str, task: str, **kw):
         super().__init__(**kw)
@@ -249,7 +255,9 @@ class AgentPane(Vertical):
         yield Static("Auftrag", classes="pane-label")
         with VerticalScroll(classes="pane-task"):
             yield Markdown(self.task_text or "_(leer)_")
-        yield Static(Text("startet …", style=DIM), classes="pane-log")
+        yield Static("Aktivität", classes="pane-label")
+        with VerticalScroll(classes="pane-logbox"):
+            yield Static(Text("startet …", style=DIM), classes="pane-log")
 
     def on_mount(self):
         self.border_title = Text.assemble(("● ", FG), (self.agent, f"bold {ACCENT}"))
@@ -265,6 +273,9 @@ class AgentPane(Vertical):
         logs = self.query(".pane-log")           # may not be composed yet right after mount()
         if logs and self.lines:
             logs.first(Static).update(Text("\n").join(self.lines))
+            box = self.query(".pane-logbox")
+            if box:
+                box.first().scroll_end(animate=False)   # newest activity stays visible
 
     def finish(self, label: str, ok: bool = True):
         self.add_class("done")
