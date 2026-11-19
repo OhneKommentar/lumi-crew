@@ -25,8 +25,7 @@ from .providers import BUILTIN, availability
 
 console = Console()
 
-COLORS = {"orchestrator": "bold magenta", "clarifier": "yellow", "planner": "cyan", "coder": "green",
-          "reviewer": "blue", "tester": "bright_red", "researcher": "bright_cyan"}
+AGENT_COLOR = "#9fb6d6"
 
 
 class ConsoleUI(UI):
@@ -36,7 +35,7 @@ class ConsoleUI(UI):
         self.interactive = interactive
 
     def emit(self, e: Event):
-        c = COLORS.get(e.agent, "white")
+        c = AGENT_COLOR
         tag = f"[{c}]{e.agent:>12}[/]"
         if e.kind == "agent_start":
             console.print(f"{tag} ▶ [dim]{e.data.get('model', '')}[/]  {e.text[:160].replace(chr(10), ' ')}")

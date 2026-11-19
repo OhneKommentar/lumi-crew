@@ -1,59 +1,210 @@
-"""Modal dialogs for the TUI."""
+"""Widgets for the crew TUI: inline picker (also used for approvals) and the prompt input with autocomplete."""
 from __future__ import annotations
 
+import asyncio
+
 from rich.syntax import Syntax
+from rich.text import Text
+from textual.actions import SkipAction
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static
+from textual.binding import Binding
+from textual.containers import Vertical, VerticalScroll
+from textual.message import Message
+from textual.theme import Theme
+from textual.widgets import Input, OptionList, Static
+from textual.widgets.option_list import Option
+
+# ----------------------------------------------------------------------------- palette
+BG = "#1f232b"        # blue-grey background
+PANEL = "#2a2f39"     # highlighted rows
+LINE = "#c8cdd6"      # thin white-ish lines
+FG = "#e3e6eb"
+DIM = "#8a919d"
+ACCENT = "#9fb6d6"    # soft blue
+USER = "#e9c46a"      # own messages
+OK = "#9cc49c"
+ERR = "#e08c8c"
+WARN = "#e0c48c"
+
+CREW_THEME = Theme(
+    name="crew", dark=True,
+    primary=ACCENT, secondary=DIM, accent=ACCENT, foreground=FG,
+    background=BG, surface=BG, panel=PANEL, boost=PANEL,
+    success=OK, error=ERR, warning=WARN,
+)
+
+COMMANDS = [
+    ("/agent", "Modell für einen Agenten wählen"),
+    ("/mode", "Modus wählen (auch Shift+Tab)"),
+    ("/agents", "Übersicht: Agenten und ihre Modelle"),
+    ("/providers", "verfügbare Provider prüfen"),
+    ("/mcp", "geladene MCP-Tools"),
+    ("/clear", "Verlauf leeren"),
+    ("/help", "Hilfe"),
+    ("/quit", "crew beenden"),
+]
 
 
-class ChoiceScreen(ModalScreen[str]):
-    """Dialog with a scrollable body and a row of buttons. Each choice: (value, label, key, variant)."""
+def row(label: str, detail: str = "", width: int = 14, number: int | None = None, current: bool = False) -> Text:
+    t = Text()
+    if number is not None:
+        t.append(f"{number}. ", style=DIM)
+    t.append(label.ljust(width), style=f"bold {FG}" if current else FG)
+    if detail:
+        t.append("  " + detail, style=DIM)
+    if current:
+        t.append("  ✔", style=ACCENT)
+    return t
 
-    DEFAULT_CSS = """
-    ChoiceScreen { align: center middle; }
-    #dialog { width: 90%; max-width: 120; height: auto; max-height: 85%;
-              border: thick $warning; background: $surface; padding: 1 2; }
-    #dialog-title { text-style: bold; color: $warning; margin-bottom: 1; }
-    #dialog-body { height: auto; max-height: 30; border: round $panel; }
-    #dialog-buttons { height: auto; margin-top: 1; align-horizontal: right; }
-    #dialog-buttons Button { margin-left: 1; }
+
+# ----------------------------------------------------------------------------- picker
+class Picker(Vertical):
+    """Inline selection list above the prompt. `await picker.choose(...)` returns the chosen value or None."""
+
+    BINDINGS = [Binding("escape", "cancel", show=False)]
+
+    DEFAULT_CSS = f"""
+    Picker {{ display: none; height: auto; border: round {LINE}; padding: 0 1; margin: 0 1; background: {BG}; }}
+    Picker #picker-title {{ color: {FG}; text-style: bold; }}
+    Picker #picker-body {{ height: auto; max-height: 22; margin: 1 0; background: {BG}; }}
+    Picker OptionList {{ height: auto; max-height: 14; border: none; background: {BG}; padding: 0; margin-top: 1; }}
+    Picker OptionList:focus {{ border: none; background-tint: {BG} 0%; }}
+    Picker #picker-hint {{ color: {DIM}; margin-top: 1; }}
     """
 
-    def __init__(self, title: str, body: str, choices: list[tuple[str, str, str, str]], lexer: str | None = None):
-        super().__init__()
-        self.title_text, self.body, self.choices, self.lexer = title, body, choices, lexer
-        self.keys = {key: value for value, _, key, _ in choices}
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self._fut: asyncio.Future | None = None
+        self._values: list = []
+        self._keys: dict[str, object] = {}
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog"):
-            yield Label(self.title_text, id="dialog-title")
-            with VerticalScroll(id="dialog-body"):
-                body = Syntax(self.body, self.lexer, word_wrap=True, theme="ansi_dark") if self.lexer else self.body
-                yield Static(body, markup=False)
-            with Horizontal(id="dialog-buttons"):
-                for value, label, key, variant in self.choices:
-                    yield Button(f"{label} ({key})", id=f"choice-{value}", variant=variant)
+        yield Static(id="picker-title")
+        with VerticalScroll(id="picker-body"):
+            yield Static(id="picker-body-text")
+        yield OptionList(id="picker-list")
+        yield Static(id="picker-hint")
 
-    def on_mount(self):
-        self.query_one(Button).focus()
+    @property
+    def active(self) -> bool:
+        return self._fut is not None and not self._fut.done()
 
-    def on_button_pressed(self, event: Button.Pressed):
-        self.dismiss(event.button.id.removeprefix("choice-"))
+    def show_loading(self, title: str):
+        self.query_one("#picker-title", Static).update(title)
+        self.query_one("#picker-body").display = False
+        lst = self.query_one(OptionList)
+        lst.clear_options()
+        lst.add_option(Option(Text("lädt …", style=DIM), disabled=True))
+        self.query_one("#picker-hint", Static).update("esc abbrechen")
+        self.display = True
+
+    async def choose(self, title: str, options: list[tuple[object, Text | str]], *, body: str | None = None,
+                     lexer: str | None = None, keys: dict[str, object] | None = None, highlight: int = 0,
+                     hint: str = "↑↓ auswählen · enter bestätigen · esc zurück"):
+        if self.active:
+            self._fut.set_result(None)
+        self._fut = asyncio.get_running_loop().create_future()
+        self._values = [v for v, _ in options]
+        self._keys = dict(keys or {})
+        for i, v in enumerate(self._values[:9], start=1):
+            self._keys.setdefault(str(i), v)
+        self.query_one("#picker-title", Static).update(title)
+        body_box = self.query_one("#picker-body")
+        body_box.display = body is not None
+        if body is not None:
+            content = Syntax(body, lexer, theme="nord", background_color=BG, word_wrap=True) if lexer else body
+            self.query_one("#picker-body-text", Static).update(content)
+            body_box.scroll_home(animate=False)
+        lst = self.query_one(OptionList)
+        lst.clear_options()
+        lst.add_options([Option(label, id=str(i)) for i, (_, label) in enumerate(options)])
+        lst.highlighted = min(highlight, len(options) - 1)
+        self.query_one("#picker-hint", Static).update(hint)
+        self.display = True
+        lst.focus()
+        return await self._fut
+
+    def _resolve(self, value):
+        if self._fut and not self._fut.done():
+            self._fut.set_result(value)
+        self.display = False
+        self.post_message(self.Closed())
+
+    class Closed(Message):
+        """Posted when the picker hides, so the app can refocus the prompt."""
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected):
+        event.stop()
+        self._resolve(self._values[int(event.option.id)])
 
     def on_key(self, event):
-        if event.key in self.keys:
+        if self.active and event.key in self._keys:
             event.stop()
-            self.dismiss(self.keys[event.key])
-        elif event.key == "escape":
-            event.stop()
-            self.dismiss(self.choices[-1][0])   # last choice = cancel / no
+            self._resolve(self._keys[event.key])
+
+    def action_cancel(self):
+        if self.active:
+            self._resolve(None)
+        else:
+            raise SkipAction()
 
 
-def approval_screen(title: str, preview: str) -> ChoiceScreen:
-    is_diff = preview.lstrip("⚠ ").startswith("---") or "\n@@" in preview
-    lexer = "diff" if is_diff else ("bash" if preview.startswith("$") else "json")
-    return ChoiceScreen(f"Erlauben? {title}", preview,
-                        [("yes", "Ja", "y", "success"), ("always", "Immer (Session)", "a", "primary"),
-                         ("no", "Nein", "n", "error")], lexer)
+# ----------------------------------------------------------------------------- prompt input
+class PromptInput(Input):
+    """Input with slash-command autocomplete. The suggestion list lives in the app (#suggest)."""
+
+    BINDINGS = [
+        Binding("down", "suggest(1)", show=False),
+        Binding("up", "suggest(-1)", show=False),
+        Binding("tab", "complete", show=False),
+        Binding("escape", "close_suggest", show=False),
+    ]
+
+    @property
+    def suggest_list(self) -> OptionList:
+        return self.app.query_one("#suggest", OptionList)
+
+    def matches(self, value: str) -> list[tuple[str, str]]:
+        if not value.startswith("/") or " " in value:
+            return []
+        return [c for c in COMMANDS if c[0].startswith(value.lower())]
+
+    def refresh_suggestions(self):
+        lst = self.suggest_list
+        found = self.matches(self.value)
+        lst.clear_options()
+        if not found:
+            lst.display = False
+            return
+        lst.add_options([Option(row(cmd, desc, width=12), id=cmd) for cmd, desc in found])
+        lst.highlighted = 0
+        lst.display = True
+
+    def on_input_changed(self, event: Input.Changed):
+        self.refresh_suggestions()
+
+    def selected_command(self) -> str | None:
+        lst = self.suggest_list
+        if lst.display and lst.option_count and lst.highlighted is not None:
+            return lst.get_option_at_index(lst.highlighted).id
+        return None
+
+    def action_suggest(self, step: int):
+        lst = self.suggest_list
+        if not lst.display or not lst.option_count:
+            raise SkipAction()
+        lst.highlighted = ((lst.highlighted or 0) + step) % lst.option_count
+
+    def action_complete(self):
+        cmd = self.selected_command()
+        if cmd is None:
+            raise SkipAction()
+        self.value = cmd + " "
+        self.cursor_position = len(self.value)
+        self.suggest_list.display = False
+
+    def action_close_suggest(self):
+        if self.suggest_list.display:
+            self.suggest_list.display = False
+        else:
+            raise SkipAction()

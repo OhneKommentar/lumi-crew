@@ -5,18 +5,30 @@ Ein **Orchestrator** entscheidet dynamisch, welcher Spezialist als Nächstes dra
 Gegenfragen, plant, lässt Code schreiben, reviewen und testen und recherchiert bei Bedarf über MCP im Web.
 
 ```
-┌ crew ─────────────────────────────────────────────┬ Agenten ──────────────────────┐
-│ › Bau mir ein wc-Tool in Python                   │ 🎯 orchestrator agy:… ✔       │
-│ ❓ clarifier ▶ Kläre die Anforderungen …           │ ├ ❓ clarifier ✔               │
-│ ❓ clarifier fragt: Sollen Unicode-Wörter …?        │ ├ 🗺 planner ✔                 │
-│ › ja                                              │ ├ ⌨ coder                      │
-│    ⌨ coder ⚙ write_file(path=wordcount.py, …)      │ │ ├ ⚙ write_file(…) ✓         │
-│ ▸ 🔍 reviewer: Ergebnis                            │ │ └ ⚙ write_file(…) ✓         │
-│ ✅ Fertig: wordcount.py + test_wordcount.py …      │ └ 🧪 tester ✔                  │
-├───────────────────────────────────────────────────┴───────────────────────────────┤
-│ › _                                                                                │
-│  auto  ⇧⇥ │ 📁 ~/proj │ 🎯 agy:gemini-3.8-flash-medium                              │
-└────────────────────────────────────────────────────────────────────────────────────┘
+ ╭──────────────────────────────────────────────╮
+ │ ✻ crew  ·  multi-agent coding cli             │
+ │   /agent Modelle wählen · /help · shift+tab   │
+ ╰──────────────────────────────────────────────╯
+
+ ❯ Bau mir ein wc-Tool in Python                       ← eigene Nachricht (gelb)
+
+ ● planner  agy:gemini-3.8-flash-medium
+   ⎿  Plane ein wc-Tool mit pytest-Tests
+     ⎿  list_dir()
+   ▶ ⎿  ✔ fertig · Antwort anzeigen
+
+ ● coder  codex:gpt-6.2-sol
+   ⎿  Implementiere wordcount.py laut Plan
+     ⎿  write_file(path=wordcount.py, …)
+
+ ● orchestrator  agy:gemini-3.8-flash-medium
+   Fertig! wordcount.py zählt Zeilen, Wörter und Zeichen …
+
+ ✻ tester arbeitet …  (12s · esc zum Abbrechen)
+ ╭──────────────────────────────────────────────╮
+ │ ❯ Was soll die Crew bauen?  (/ für Befehle)   │
+ ╰──────────────────────────────────────────────╯
+ ⏵⏵ auto  alles automatisch · shift+tab     orchestrator · agy:gemini-3.8-flash-medium
 ```
 
 ## Architektur
@@ -113,8 +125,17 @@ cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
 > manchmal als „hidden“, und Python ignoriert dann die `.pth`-Datei der Editable-Installation (`.venv/bin/crew` würde
 > mit `No module named 'crew'` scheitern).
 
-TUI-Befehle: `/help`, `/mode`, `/model <agent|all> <provider:model>`, `/agents`, `/providers`, `/mcp`, `/clear`, `/quit`.
-Tasten: **Shift+Tab** Modus · **Esc** abbrechen · **Ctrl+C** beenden.
+### Bedienung der TUI
+
+- `/` tippen zeigt alle Befehle mit Autocomplete (↑↓ wählen, Tab vervollständigt, Enter führt aus).
+- **`/agent`** zum Durchklicken: Agent wählen (mit aktuellem Modell daneben) → Provider (**agy, codex, claude,
+  ollama, lmstudio**, mit Erreichbarkeits-Check) → Modell. Die Modell-Listen werden **live** geholt: `agy models`,
+  `codex debug models`, `/v1/models` von Ollama/LM Studio. Für claude gibt es die Aliase opus/sonnet/haiku/fable,
+  weil die CLI keinen Listen-Befehl hat und die Aliase immer auf die neueste Version zeigen.
+- `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
+- Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
+- Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.
+- Tasten: **Shift+Tab** Modus · **Esc** abbrechen · **Ctrl+C** beenden.
 
 ### Researcher mit dem MCP-Server aus Lab 4
 
