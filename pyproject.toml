@@ -1,6 +1,6 @@
 [project]
 name = "lumi-crew"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lumi Crew: multi-agent coding CLI (orchestrator + clarifier, planner, coder, reviewer, tester, researcher)"
 readme = "README.md"
 requires-python = ">=3.11"
