@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Collapsible, Input, Markdown, OptionList, Static
@@ -20,6 +20,8 @@ from ..agents.roles import ROLES
 from ..config import MODES, Config
 from ..events import Event, UI
 from ..models import PICKER_PROVIDERS, fallback_suggestions, list_models
+from ..onboarding import Step, store_key
+from ..onboarding import status as onboarding_status
 from ..providers import BUILTIN, availability, provider_config
 from ..providers.base import ProviderError
 from ..session import Session
@@ -40,8 +42,10 @@ MODE_INFO = {
     "plan": ("⏸ plan mode", "nur lesen und planen"),
 }
 
-PROVIDER_KIND = {"agy": "CLI · Antigravity", "codex": "CLI · OpenAI Codex", "claude": "CLI · Claude Code",
-                 "ollama": "lokal · Ollama", "lmstudio": "lokal · LM Studio"}
+PROVIDER_KIND = {"agy": "CLI · Antigravity", "codex": "CLI · OpenAI Codex", "claude": "CLI · Claude Code (Abo)",
+                 "anthropic": "API · Claude per API-Key", "ollama": "lokal · Ollama", "lmstudio": "lokal · LM Studio"}
+STEP_HINT = {"install": "enter = installieren", "login": "enter = anmelden", "key": "enter = Key eingeben",
+             "start": "enter = starten", "manual": "enter = Anleitung"}
 
 HELP = """**Befehle**: `/` tippen zeigt alle Befehle, ↑↓ und Tab vervollständigen.
 
@@ -140,6 +144,7 @@ class CrewApp(App):
         self.draft = ""                     # what was typed before browsing started
         self.queue: list[str] = []          # messages sent while the crew was busy
         self.ui_lock = asyncio.Lock()       # one question / approval / picker at a time (parallel agents)
+        self.secret_input = False           # prompt is collecting an API key (masked, never shown or saved)
 
     # ------------------------------------------------------------------ layout
     def compose(self) -> ComposeResult:
@@ -492,6 +497,10 @@ class CrewApp(App):
             text = cmd                                    # enter on a highlighted suggestion
         self.prompt.value = ""
         self.query_one("#suggest").display = False
+        if self.pending_answer is not None and not self.pending_answer.done() and self.secret_input:
+            fut, self.pending_answer = self.pending_answer, None
+            fut.set_result(event.value)                  # never shown, never stored in the chat
+            return
         if self.pending_answer is not None and not self.pending_answer.done():
             self.add_user(text or "(keine Antwort)")
             fut, self.pending_answer = self.pending_answer, None
@@ -577,10 +586,12 @@ class CrewApp(App):
     async def provider_options(self, current: str | None) -> tuple[list, list[str]]:
         s = self.session
         names = PICKER_PROVIDERS + [n for n in s.config.providers if n not in PICKER_PROVIDERS]
-        status = await asyncio.gather(*(asyncio.to_thread(availability, n, s.config.providers) for n in names))
+        states = await asyncio.gather(*(onboarding_status(n, s.config.providers) for n in names))
         opts = []
-        for i, (n, (ok, msg)) in enumerate(zip(names, status), start=1):
-            detail = PROVIDER_KIND.get(n, "eigener Provider") + ("" if ok else f"  ✗ {msg}")
+        for i, (n, st) in enumerate(zip(names, states), start=1):
+            detail = PROVIDER_KIND.get(n, "eigener Provider")
+            if not st.ok:
+                detail += f"  ✗ {st.reason}" + (f" · {STEP_HINT[st.step.kind]}" if st.step else "")
             opts.append((n, row(n, detail, width=10, number=i, current=n == current)))
         return opts, names
 
@@ -597,6 +608,8 @@ class CrewApp(App):
                 highlight=names.index(current) if current in names else 0)
             if provider is None:
                 return None
+            if not await self.ensure_provider(provider):
+                continue                                    # not set up (yet) → back to the provider list
             self.picker.show_loading(Text.assemble(("Modelle von ", f"bold {FG}"), (provider, f"bold {ACCENT}"),
                                                    (" werden geladen …", f"bold {FG}")))
             try:
@@ -614,6 +627,84 @@ class CrewApp(App):
                 opts)
             if spec is not None:
                 return spec
+
+    # ------------------------------------------------------------------ provider setup (install / login / key)
+    async def ensure_provider(self, provider: str) -> bool:
+        """Walk the user through installing / logging in / entering a key until `provider` is usable."""
+        custom = self.session.config.providers
+        for _ in range(4):                                   # e.g. install → login → ready
+            st = await onboarding_status(provider, custom)
+            if st.ok:
+                return True
+            step = st.step
+            if step is None:
+                self.notify(st.reason, title=f"{provider} nicht verfügbar", severity="error")
+                return False
+            if step.kind == "manual":
+                await self.picker.choose(Text(step.title, style=f"bold {WARN}"), [(None, row("OK", width=0, number=1))],
+                                         body=step.help, hint="enter / esc schließen")
+                return False
+            if step.kind == "key":
+                if not await self.ask_secret(step):
+                    return False
+                continue
+            cmd = " ".join(step.command)
+            choice = await self.picker.choose(
+                Text(step.title, style=f"bold {FG}"),
+                [("yes", row("Ja", cmd, width=4, number=1)), (None, row("Nein", width=4, number=2))],
+                hint="enter bestätigen · esc abbrechen")
+            if choice != "yes":
+                return False
+            rc = self.run_interactive(step.command)
+            if rc != 0 and step.kind == "install":
+                self.notify(f"`{cmd}` ist fehlgeschlagen (Exit {rc}).", severity="error")
+                return False
+        return (await onboarding_status(provider, custom)).ok
+
+    def run_interactive(self, command: list[str]) -> int:
+        """Hand the terminal to an official install/login command (browser logins need it), then come back."""
+        import subprocess
+        try:
+            with self.suspend():
+                print(f"\n  ▶ {' '.join(command)}\n", flush=True)
+                try:
+                    rc = subprocess.run(command).returncode
+                except OSError as e:
+                    print(f"  ✗ {e}")
+                    rc = 1
+                try:
+                    input("\n  Enter drücken, um zu Lumi Crew zurückzukehren … ")
+                except EOFError:
+                    pass
+            return rc
+        except SuspendNotSupported:
+            self.notify(f"Bitte selbst im Terminal ausführen: {' '.join(command)}", severity="warning", timeout=15)
+            return 1
+
+    async def ask_secret(self, step: "Step") -> bool:
+        """Read an API key through the (masked) prompt and store it in the keychain."""
+        fut = asyncio.get_running_loop().create_future()
+        self.pending_answer = fut
+        self.secret_input = True
+        self.prompt.password = True
+        self.prompt.placeholder = f"{step.title}  ·  wird im Schlüsselbund gespeichert, leer = abbrechen"
+        self.picker.display = False
+        self.prompt.focus()
+        try:
+            key = (await fut).strip()
+        finally:
+            self.secret_input = False
+            self.prompt.password = False
+            self.prompt.placeholder = PLACEHOLDER
+        if not key:
+            return False
+        try:
+            await asyncio.to_thread(store_key, step.env, key)
+        except Exception as e:
+            self.notify(f"Key konnte nicht gespeichert werden: {e}", severity="error")
+            return False
+        self.add_line(Text.assemble(("🔑 ", ACCENT), (f"{step.env} gespeichert", FG), (" (Schlüsselbund)", DIM)))
+        return True
 
     async def pick_agent_model(self):
         s = self.session

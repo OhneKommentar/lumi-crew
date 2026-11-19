@@ -20,13 +20,13 @@ Aufgaben laufen parallel. Jeder Agent bekommt rechts ein eigenes Live-Fenster.
 
 ```bash
 brew install ohnekommentar/tap/lumi-crew
-lumi-crew --version
+lumi-crew setup        # fehlende CLIs installieren, Login starten, API-Keys hinterlegen
 ```
 
 Alternativ ohne Homebrew (Python ≥ 3.11):
 
 ```bash
-uv tool install git+https://github.com/OhneKommentar/lumi-crew@v0.1.0
+uv tool install git+https://github.com/OhneKommentar/lumi-crew@v0.2.0
 ```
 
 Lumi Crew bringt selbst kein Modell mit. Es braucht mindestens einen dieser Zugänge:
@@ -34,14 +34,18 @@ Lumi Crew bringt selbst kein Modell mit. Es braucht mindestens einen dieser Zug�
 | Provider | Voraussetzung | Tool-Calling |
 |---|---|---|
 | `agy` | [Antigravity](https://antigravity.google)-CLI, eingeloggt | JSON-Text-Protokoll |
-| `claude` | Claude-Code-CLI, eingeloggt (`claude -p`, eigene Tools aus) | JSON-Text-Protokoll |
+| `claude` | Claude-Code-CLI, eingeloggt (`claude -p`, eigene Tools aus), siehe [Hinweise](#rechtliches--datenschutz) | JSON-Text-Protokoll |
 | `codex` | Codex-CLI, eingeloggt (`codex exec`, Sandbox read-only) | JSON-Text-Protokoll |
 | `ollama`, `lmstudio` | lokaler Server (`localhost:11434` bzw. `:1234`) | nativ |
 | `anthropic` | `ANTHROPIC_API_KEY` oder `ant auth login` | nativ |
 | `gemini` | `GEMINI_API_KEY` | nativ |
 | `openai`, eigene | API-Key bzw. `base_url` in `lumi-crew.toml` | nativ |
 
-`lumi-crew providers` zeigt, was auf deinem Rechner gerade nutzbar ist. Die CLI-Provider laufen als **reine
+`lumi-crew providers` zeigt, was auf deinem Rechner gerade nutzbar ist. Fehlt etwas, hilft **`lumi-crew setup`**
+oder in der TUI direkt `/agent`: Ist eine CLI nicht installiert, bietet Lumi Crew nach Rückfrage die offizielle
+Installation an (`brew install --cask codex` / `claude-code`, `brew install ollama`, …). Danach startet der offizielle
+Login (`codex login`, `claude auth login`). Für die Claude-API fragt Lumi Crew den Key verdeckt ab und speichert ihn
+im **macOS-Schlüsselbund**. Ohne deine Bestätigung wird nichts installiert. Die CLI-Provider laufen als **reine
 Text-LLMs**: in einem leeren Temp-Ordner und ohne eigene Tools. Den Workspace fassen ausschließlich die Tools von
 Lumi Crew an, und zwar mit Permission-Prüfung. Logins werden nie ausgelesen, Lumi Crew ruft nur die offiziellen CLIs auf.
 
@@ -153,6 +157,19 @@ GitHub-Release, die Änderungen stehen im [CHANGELOG](CHANGELOG.md). Neues Relea
    GitHub-Release erstellen und die Homebrew-Formel in
    [OhneKommentar/homebrew-tap](https://github.com/OhneKommentar/homebrew-tap) aktualisieren
 3. Nutzer bekommen es mit `brew upgrade lumi-crew`
+
+## Rechtliches & Datenschutz
+
+- Lumi Crew ist ein unabhängiges Projekt und **nicht mit Anthropic, OpenAI oder Google verbunden**. Claude, Codex,
+  Gemini und Antigravity sind Marken ihrer jeweiligen Inhaber und werden nur zur Beschreibung der Kompatibilität
+  genannt.
+- Lumi Crew ruft ausschließlich die **offiziellen CLIs** mit **deinem eigenen Login** auf. Zugangsdaten werden nie
+  ausgelesen oder weitergegeben. Für die Nutzung gelten die Bedingungen des jeweiligen Anbieters.
+- **Claude per Abo-Login (`claude`):** Anthropic sieht für Produkte von Drittanbietern API-Keys statt claude.ai-Logins
+  vor. Der `claude`-Provider ist für die eigene Nutzung gedacht. Für alles andere nimm `anthropic` mit API-Key.
+- **Daten:** Deine Prompts und die Inhalte, die die Agenten aus dem Workspace lesen, gehen an den gewählten Anbieter
+  (bei Ollama/LM Studio bleibt alles lokal). Lumi Crew selbst sendet keine Daten an eigene Server. Chats und
+  Einstellungen liegen nur lokal in `~/.config/lumi-crew/`.
 
 ## Lizenz
 

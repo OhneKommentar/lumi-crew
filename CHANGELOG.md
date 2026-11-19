@@ -5,6 +5,16 @@ Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-19
+
+### Hinzugefügt
+- Provider-Einrichtung: Fehlt eine CLI (codex, claude) oder Ollama/LM Studio, bietet Lumi Crew nach Rückfrage die
+  offizielle Installation per Homebrew an und startet danach den offiziellen Login bzw. den lokalen Server.
+- Claude zusätzlich per API-Key (`anthropic`) im `/agent`-Picker; der Key wird verdeckt abgefragt und im
+  macOS-Schlüsselbund gespeichert (sonst `~/.config/lumi-crew/keys.json`, Modus 600).
+- `lumi-crew setup`: geht alle Provider im Terminal durch.
+- README: Hinweise zu Rechtlichem und Datenschutz.
+
 ## [0.1.0] - 2026-11-19
 
 Erstes Release.
@@ -21,5 +31,6 @@ Erstes Release.
 - Usage-Limit-Erkennung mit Vorschlägen für ein Ersatzmodell.
 - MCP-Client für den Researcher, Headless-Modus `lumi-crew -p`.
 
-[Unreleased]: https://github.com/OhneKommentar/lumi-crew/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/OhneKommentar/lumi-crew/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/OhneKommentar/lumi-crew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/OhneKommentar/lumi-crew/releases/tag/v0.1.0

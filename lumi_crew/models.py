@@ -17,7 +17,7 @@ import shutil
 from .providers import provider_config
 from .providers.base import ProviderError
 
-PICKER_PROVIDERS = ["agy", "codex", "claude", "ollama", "lmstudio"]
+PICKER_PROVIDERS = ["agy", "codex", "claude", "anthropic", "ollama", "lmstudio"]
 
 CLAUDE_ALIASES = [
     ("opus", "Claude Opus · neueste Version (Alias)"),

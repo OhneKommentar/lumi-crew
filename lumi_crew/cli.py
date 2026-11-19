@@ -1,12 +1,13 @@
 """
 Lumi Crew: multi-agent coding CLI (command: lumi-crew).
 
-  lumi-crew                        interactive TUI in the current directory
+  lumi-crew                         interactive TUI in the current directory
   lumi-crew -w ./proj --mode auto   choose workspace and start mode
   lumi-crew -p "build X"            headless: run one request, print the result
-  crew providers               show which providers are usable
-  lumi-lumi-crew -c / --resume      continue the last chat / pick a saved chat
-  crew chats [-a]              list saved chats (of this folder / all)
+  lumi-crew -c | --resume           continue the last chat / pick a saved chat
+  lumi-crew providers               show which providers are usable
+  lumi-crew chats [-a]              list saved chats (of this folder / all)
+  lumi-crew setup                   install / log in / add API keys for the providers
 """
 from __future__ import annotations
 
@@ -165,10 +166,51 @@ def cmd_chats(workspace: Path, show_all: bool):
     console.print("[dim]Fortsetzen: lumi-crew -c (letzter Chat) · lumi-crew --resume (Auswahl) · in der TUI /resume[/]")
 
 
+def cmd_setup(cfg):
+    """Interactive terminal walk-through: install missing CLIs, trigger their login, store API keys."""
+    import getpass
+    import subprocess
+
+    from .models import PICKER_PROVIDERS
+    from .onboarding import status, store_key
+
+    console.print(Panel("Prüft agy, codex, claude, Claude-API, Ollama und LM Studio und hilft beim Einrichten.\n"
+                        "Es wird nichts ohne deine Bestätigung installiert.", title="Lumi Crew · setup",
+                        border_style=AGENT_COLOR))
+    for name in PICKER_PROVIDERS:
+        for _ in range(4):
+            st = asyncio.run(status(name, cfg.providers))
+            if st.ok:
+                console.print(f"  [green]✔[/] {name:<10} [dim]{escape(st.reason)}[/]")
+                break
+            console.print(f"  [yellow]✗[/] {name:<10} [dim]{escape(st.reason)}[/]")
+            step = st.step
+            if step is None:
+                break
+            if step.kind == "manual":
+                console.print(f"    [dim]{escape(step.help)}[/]")
+                break
+            if step.kind == "key":
+                if input(f"    {step.title}? [j/N] ").strip().lower() not in ("j", "y", "ja", "yes"):
+                    break
+                key = getpass.getpass("    Key (verdeckt): ").strip()
+                if not key:
+                    break
+                store_key(step.env, key)
+                continue
+            cmd = " ".join(step.command)
+            if input(f"    {step.title}  ({cmd}) [j/N] ").strip().lower() not in ("j", "y", "ja", "yes"):
+                break
+            if subprocess.run(step.command).returncode != 0 and step.kind == "install":
+                console.print(f"    [red]fehlgeschlagen: {escape(cmd)}[/]")
+                break
+    console.print("[dim]Fertig. Modelle pro Agent wählst du in der TUI mit /agent.[/]")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="lumi-crew", description="Lumi Crew: multi-agent coding CLI")
-    ap.add_argument("command", nargs="?", choices=["providers", "chats"],
-                    help="`providers`: list usable providers · `chats`: list saved chats")
+    ap.add_argument("command", nargs="?", choices=["providers", "chats", "setup"],
+                    help="`providers`: usable providers · `chats`: saved chats · `setup`: install/login/API keys")
     ap.add_argument("-w", "--workspace", default=".", help="project directory (default: current dir)")
     ap.add_argument("-p", "--print", dest="prompt", help="run one request headless and print the result")
     ap.add_argument("--mode", choices=MODES, help="permission mode at start")
@@ -190,6 +232,10 @@ def main(argv=None):
     if args.model:
         cfg.default, cfg.agents = args.model, {}
 
+    from .onboarding import load_stored_keys
+    load_stored_keys(cfg.providers)                   # API keys saved with /agent or `lumi-crew setup`
+    if args.command == "setup":
+        return cmd_setup(cfg)
     if args.command == "providers":
         return cmd_providers(cfg, {} if args.model else load_saved_models())
     if args.command == "chats":

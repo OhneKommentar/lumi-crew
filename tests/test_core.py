@@ -364,3 +364,25 @@ def test_chat_roundtrip(tmp_path, isolated_state):
     empty = chats.new_chat(tmp_path)
     chats.save(empty)                                      # chats without entries are not listed
     assert len(chats.list_chats(tmp_path)) == 1
+
+
+def test_key_store_file_fallback_is_private(tmp_path, isolated_state, monkeypatch):
+    import os
+    from lumi_crew import onboarding
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    onboarding.store_key("GEMINI_API_KEY", "  abc123 ")
+    assert onboarding.stored_key("GEMINI_API_KEY") == "abc123"
+    assert os.environ["GEMINI_API_KEY"] == "abc123"
+    keys = isolated_state.parent / "keys.json"
+    assert oct(keys.stat().st_mode & 0o777) == "0o600"
+
+
+async def test_onboarding_status_for_missing_cli(tmp_path, monkeypatch):
+    from lumi_crew import onboarding
+    monkeypatch.setattr(onboarding.shutil, "which", lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None)
+    st = await onboarding.status("codex")
+    assert not st.ok and st.step.kind == "install" and st.step.command == ["brew", "install", "--cask", "codex"]
+    st = await onboarding.status("claude")
+    assert st.step.command == ["brew", "install", "--cask", "claude-code"]
+    st = await onboarding.status("agy")
+    assert st.step.kind == "manual"

@@ -403,3 +403,67 @@ async def test_continue_flag_and_new_chat(tmp_path):
         await pilot.press(*"/new", "enter")
         await pilot.pause(0.2)
         assert app.chat is None and app.session.orchestrator.messages == []
+
+
+async def test_missing_cli_is_installed_after_confirmation(tmp_path, monkeypatch):
+    from lumi_crew.onboarding import Status, Step
+
+    async def fake_models(provider, custom=None, refresh=False):
+        return [("m1", "")]
+    monkeypatch.setattr(tui_app, "list_models", fake_models)
+    installed = []
+
+    async def status(provider, custom=None):
+        if provider == "codex" and not installed:
+            return Status(False, "nicht installiert", Step("install", "Codex installieren?",
+                                                           ["brew", "install", "--cask", "codex"]))
+        return Status(True, "ok")
+    monkeypatch.setattr(tui_app, "onboarding_status", status)
+    app = app_with(tmp_path, {})
+    app.run_interactive = lambda cmd: installed.append(cmd) or 0
+    async with app.run_test() as pilot:
+        await pilot.press(*"/agent", "enter")
+        assert await wait_for(pilot, lambda: app.picker.active)
+        await pilot.press("4")                                         # coder
+        assert await wait_for(pilot, lambda: "Provider" in str(app.picker.query_one("#picker-title").render()))
+        await pilot.press("2")                                         # codex → not installed
+        assert await wait_for(pilot, lambda: "installieren" in str(app.picker.query_one("#picker-title").render()))
+        await pilot.press("1")                                         # yes
+        assert await wait_for(pilot, lambda: app.picker.query_one("#picker-list").option_count == 2)
+        assert installed == [["brew", "install", "--cask", "codex"]]
+        await pilot.press("2")
+        assert await wait_for(pilot, lambda: not app.picker.active)
+        assert app.session.spec_for("coder") == "codex:m1"
+
+
+async def test_api_key_is_asked_masked_and_never_shown(tmp_path, monkeypatch):
+    from lumi_crew.onboarding import Status, Step
+    stored = {}
+
+    async def status(provider, custom=None):
+        if provider == "anthropic" and "ANTHROPIC_API_KEY" not in stored:
+            return Status(False, "kein API-Key", Step("key", "API-Key für Anthropic eingeben", env="ANTHROPIC_API_KEY"))
+        return Status(True, "ok")
+
+    async def fake_models(provider, custom=None, refresh=False):
+        return [("claude-opus-5-5", "Opus")]
+    monkeypatch.setattr(tui_app, "onboarding_status", status)
+    monkeypatch.setattr(tui_app, "list_models", fake_models)
+    monkeypatch.setattr(tui_app, "store_key", lambda env, key: stored.__setitem__(env, key))
+    app = app_with(tmp_path, {})
+    async with app.run_test() as pilot:
+        await pilot.press(*"/agent", "enter")
+        assert await wait_for(pilot, lambda: app.picker.active)
+        await pilot.press("1")                                         # orchestrator
+        assert await wait_for(pilot, lambda: "Provider" in str(app.picker.query_one("#picker-title").render()))
+        await pilot.press("4")                                         # anthropic → key needed
+        assert await wait_for(pilot, lambda: app.secret_input)
+        assert app.prompt.password
+        await pilot.press(*"sk-ant-secret123", "enter")
+        assert await wait_for(pilot, lambda: app.picker.active and app.picker.query_one("#picker-list").option_count == 2)
+        await pilot.press("2")
+        assert await wait_for(pilot, lambda: not app.picker.active)
+        assert stored == {"ANTHROPIC_API_KEY": "sk-ant-secret123"}
+        assert app.session.spec_for("orchestrator") == "anthropic:claude-opus-5-5"
+        everything = " ".join(str(w.render()) for w in app.query("Static")) + " ".join(app.history)
+        assert "sk-ant-secret123" not in everything and not app.prompt.password
