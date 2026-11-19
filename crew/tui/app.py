@@ -52,6 +52,7 @@ HELP = """**Befehle**: `/` tippen zeigt alle Befehle, ↑↓ und Tab vervollstä
 | `/providers` | welche Provider gerade erreichbar sind |
 | `/mcp` | geladene MCP-Tools |
 | `/model <agent\\|all> <provider:model>` | Modell direkt setzen |
+| `/model reset` | gespeicherte Modellwahl löschen |
 | `/clear` · `/quit` | Verlauf leeren · beenden |
 
 **Tasten:** ↑↓ Verlauf / wartende Nachricht bearbeiten · Shift+Tab Modus · Esc abbrechen · Ctrl+C beenden
@@ -119,9 +120,9 @@ class CrewApp(App):
         Binding("ctrl+c", "quit", show=False, priority=True),
     ]
 
-    def __init__(self, workspace: Path, config: Config, mode: str | None = None):
+    def __init__(self, workspace: Path, config: Config, mode: str | None = None, use_saved: bool = True):
         super().__init__()
-        self.session = Session(workspace, config, TuiUI(self), mode=mode)
+        self.session = Session(workspace, config, TuiUI(self), mode=mode, use_saved=use_saved)
         self.pending_answer: asyncio.Future | None = None
         self.started_at: float | None = None
         self.running: list[str] = []        # running sub-agent instance names
@@ -174,6 +175,9 @@ class CrewApp(App):
             welcome.append(key, style=FG)
             welcome.append(desc, style=DIM)
         welcome.append(f"  workspace  {ws}\n  config     {cfg}\n  standard   {s.config.default}", style=DIM)
+        if s.saved_models:
+            saved = ", ".join(f"{r} → {spec}" for r, spec in s.saved_models.items())
+            welcome.append(f"\n  gespeichert {saved}", style=DIM)
         self.transcript.mount(Static(welcome, id="welcome"))
         self.run_worker(self.session.start(), group="setup")
 
@@ -577,11 +581,11 @@ class CrewApp(App):
                 spec = await self.pick_provider_model(role)
                 if spec is None:
                     continue                        # esc on provider step → back to agent list
-                s.set_model(role, spec)
+                s.set_model(role, spec, persist=True)
                 self.update_status()
                 target = "alle Agenten" if role == "all" else role
                 self.add_line(Text.assemble(("✻ ", ACCENT), (target, f"bold {ACCENT}"), (" nutzt jetzt ", DIM),
-                                            (spec, FG)))
+                                            (spec, FG), ("  (gespeichert)", DIM)))
                 return
 
     async def pick_mode(self):
@@ -641,15 +645,21 @@ class CrewApp(App):
                 self.run_worker(self.pick_agent_model(), group="ui", exclusive=True)
             elif cmd == "/usage":
                 self.run_worker(self.pick_usage(), group="ui", exclusive=True)
+            elif cmd == "/model" and args == ["reset"]:
+                s.forget_models()
+                self.update_status()
+                self.add_line(Text.assemble(("✻ ", ACCENT), ("Gespeicherte Modellwahl gelöscht, ", DIM),
+                                            (f"alle Agenten nutzen wieder crew.toml / {s.config.default}", FG)))
             elif cmd == "/model":
                 if len(args) != 2:
                     raise ValueError("Nutzung: /model <agent|all> <provider:model>, oder /agent zum Durchklicken")
-                s.set_model(args[0], args[1])
+                s.set_model(args[0], args[1], persist=True)
                 self.update_status()
                 self.add_line(Text.assemble(("✻ ", ACCENT), (args[0], f"bold {ACCENT}"), (" nutzt jetzt ", DIM),
-                                            (args[1], FG)))
+                                            (args[1], FG), ("  (gespeichert)", DIM)))
             elif cmd == "/agents":
-                rows = "\n".join(f"| **{r}** | `{s.spec_for(r)}` | {ROLES[r].summary} |" for r in ROLES)
+                rows = "\n".join(f"| **{r}** | `{s.spec_for(r)}`{' 💾' if r in s.saved_models else ''} | "
+                                 f"{ROLES[r].summary} |" for r in ROLES)
                 self.add(Markdown(f"| Agent | Modell | Aufgabe |\n|---|---|---|\n{rows}", classes="msg"))
             elif cmd == "/providers":
                 names = sorted(set(BUILTIN) | set(s.config.providers))

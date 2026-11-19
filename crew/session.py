@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .agents.base import Agent
 from .agents.roles import ROLES, SPECIALISTS
-from .config import Config
+from .config import Config, load_saved_models, save_models
 from .events import Event, UI
 from .permissions import Permissions
 from .providers import create_provider
@@ -17,12 +17,14 @@ from .tools.shell import SHELL_TOOLS
 
 
 class Session:
-    def __init__(self, workspace: Path, config: Config, ui: UI, mode: str | None = None):
+    def __init__(self, workspace: Path, config: Config, ui: UI, mode: str | None = None,
+                 use_saved: bool = True):
         self.workspace = workspace.resolve()
         self.config = config
         self.ui = ui
         self.permissions = Permissions(mode or config.mode)
-        self.overrides: dict[str, str] = {}          # role -> spec, set with /model
+        self.overrides: dict[str, str] = load_saved_models() if use_saved else {}   # role -> spec (/agent, /model)
+        self.saved_models = dict(self.overrides)
         self._providers: dict[str, Provider] = {}
         self.mcp_tools: list[Tool] = []
         self.delegations = 0
@@ -49,13 +51,18 @@ class Session:
             self._providers[spec] = create_provider(spec, self.config.providers)
         return self._providers[spec]
 
-    def set_model(self, role: str, spec: str, keep_history: bool = False):
+    def set_model(self, role: str, spec: str, keep_history: bool = False, persist: bool = False):
+        """Use `spec` for `role` ("all" = every agent). persist=True keeps the choice for the next start."""
         create_provider(spec, self.config.providers)   # validate early
         targets = list(ROLES) if role == "all" else [role]
         for r in targets:
             if r not in ROLES:
                 raise ValueError(f"unknown agent `{r}`")
             self.overrides[r] = spec
+            if persist:
+                self.saved_models[r] = spec
+        if persist:
+            save_models(self.saved_models)
         if self.orchestrator and "orchestrator" in targets:
             if keep_history:        # switching mid-run (usage limit): keep the conversation, drop native blocks
                 self.orchestrator.switch_provider(self.provider_for("orchestrator"))
@@ -143,6 +150,16 @@ class Session:
         result = await o.run(text)
         self.ui.emit(Event("agent_end", "orchestrator", result))
         return result
+
+    def forget_models(self):
+        """Drop all saved model choices (back to crew.toml / defaults)."""
+        for r in self.saved_models:
+            self.overrides.pop(r, None)
+        self.saved_models = {}
+        save_models({})
+        if self.orchestrator:
+            self.orchestrator.provider = self.provider_for("orchestrator")
+            self.orchestrator.messages.clear()
 
     def reset(self):
         if self.orchestrator:

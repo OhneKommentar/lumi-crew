@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from crew.agents.roles import ROLES
 from crew.config import Config
 from crew.events import UI
 from crew.permissions import PathError, Permissions, resolve_in_workspace
@@ -315,3 +316,29 @@ def test_usage_record_and_summary():
     usage.record("claude", "haiku", input_tokens=800, output_tokens=200, seconds=1)
     assert usage.summary("claude") == "2 Aufrufe · 2.5k Tokens · $0.01"
     assert "noch nicht genutzt" in usage.summary("codex")
+
+
+def test_model_choice_is_saved_and_loaded(tmp_path, isolated_state):
+    s = Session(tmp_path, Config(), RecUI())
+    s.set_model("coder", "codex:gpt-x", persist=True)
+    s.set_model("tester", "claude:haiku")                      # not persisted
+    s2 = Session(tmp_path, Config(), RecUI())                   # "next start"
+    assert s2.spec_for("coder") == "codex:gpt-x"
+    assert s2.spec_for("tester") == Config().default
+    assert Session(tmp_path, Config(), RecUI(), use_saved=False).spec_for("coder") == Config().default
+
+
+def test_saved_choice_beats_crew_toml_and_reset_forgets(tmp_path, isolated_state):
+    cfg = Config(agents={"coder": "agy:from-toml"})
+    s = Session(tmp_path, cfg, RecUI())
+    assert s.spec_for("coder") == "agy:from-toml"
+    s.set_model("all", "claude:sonnet", persist=True)
+    s2 = Session(tmp_path, cfg, RecUI())
+    assert all(s2.spec_for(r) == "claude:sonnet" for r in ROLES)
+    s2.forget_models()
+    assert Session(tmp_path, cfg, RecUI()).spec_for("coder") == "agy:from-toml"
+
+
+def test_broken_state_file_is_ignored(tmp_path, isolated_state):
+    isolated_state.write_text("{ not json")
+    assert Session(tmp_path, Config(), RecUI()).overrides == {}

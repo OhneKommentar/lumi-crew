@@ -303,3 +303,22 @@ async def test_usage_picker(tmp_path, monkeypatch):
         assert await wait_for(pilot, lambda: not app.picker.display)
         md = [w for w in app.query("Markdown") if "Usage · claude" in w.source]
         assert md and "Konto von claude" in md[0].source and "Aufrufe | 1" in md[0].source
+
+
+async def test_agent_picker_choice_survives_restart(tmp_path, monkeypatch):
+    async def fake_models(provider, custom=None, refresh=False):
+        return [("model-a", "A")]
+    monkeypatch.setattr(tui_app, "list_models", fake_models)
+    app = app_with(tmp_path, {})
+    async with app.run_test() as pilot:
+        await pilot.press(*"/agent", "enter")
+        assert await wait_for(pilot, lambda: app.picker.active)
+        await pilot.press("5")                                         # reviewer
+        assert await wait_for(pilot, lambda: "Provider" in str(app.picker.query_one("#picker-title").render()))
+        await pilot.press("3")                                         # claude
+        assert await wait_for(pilot, lambda: app.picker.query_one("#picker-list").option_count == 2)
+        await pilot.press("2")                                         # model-a
+        assert await wait_for(pilot, lambda: not app.picker.active)
+    restarted = CrewApp(tmp_path, Config(), "manual")
+    assert restarted.session.spec_for("reviewer") == "claude:model-a"
+    assert CrewApp(tmp_path, Config(), "manual", use_saved=False).session.spec_for("reviewer") == Config().default

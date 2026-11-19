@@ -147,6 +147,10 @@ cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
 - **Usage-Limit:** Läuft ein Modell ins Limit (Quota, 429, „usage limit“ …), fragt crew, ob ein anderes Modell
   übernehmen soll. Es schlägt sofort erreichbare Alternativen vor (andere CLIs, lokale Ollama-/LM-Studio-Modelle) oder
   öffnet die volle Provider/Modell-Auswahl. Der Agent macht danach mit seinem bisherigen Verlauf weiter.
+- **Modellwahl wird gespeichert:** Was du mit `/agent` oder `/model` auswählst, landet in
+  `~/.config/crew/state.json` und gilt beim nächsten Start wieder, in jedem Projektordner. Gespeicherte Auswahl schlägt
+  `crew.toml [agents]`. `crew --model X` gilt nur für diesen einen Lauf und ändert nichts. `/model reset` löscht die
+  gespeicherte Auswahl. Ein Wechsel wegen Usage-Limit gilt nur für die laufende Session.
 - `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
 - Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
 - Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.

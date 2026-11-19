@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from .agents.roles import ROLES
-from .config import MODES, load_config
+from .config import MODES, load_config, load_saved_models
 from .events import Event, UI
 from .providers import BUILTIN, availability
 
@@ -103,7 +103,7 @@ def escape(text: str) -> str:
     return e(text)
 
 
-def cmd_providers(cfg):
+def cmd_providers(cfg, saved: dict | None = None):
     from rich.table import Table
     t = Table(title="crew providers")
     t.add_column("provider"), t.add_column("type"), t.add_column("status")
@@ -115,14 +115,15 @@ def cmd_providers(cfg):
     t2 = Table(title="agents → model")
     t2.add_column("agent"), t2.add_column("provider:model")
     for role in ROLES:
-        t2.add_row(role, cfg.spec_for(role))
+        saved = saved or {}
+        t2.add_row(role, f"{saved[role]}  [dim](gespeichert)[/]" if role in saved else cfg.spec_for(role))
     console.print(t2)
 
 
-async def run_headless(workspace, cfg, mode, prompt):
+async def run_headless(workspace, cfg, mode, prompt, use_saved=True):
     from .session import Session
     ui = ConsoleUI(interactive=sys.stdin.isatty(), custom=cfg.providers)
-    session = Session(workspace, cfg, ui, mode=mode)
+    session = Session(workspace, cfg, ui, mode=mode, use_saved=use_saved)
     console.print(f"[dim]workspace {session.workspace} · mode {session.permissions.mode}[/]")
     result = await session.send(prompt)
     console.print(Panel(Markdown(result or "(no answer)"), title="crew", border_style="magenta"))
@@ -149,15 +150,15 @@ def main(argv=None):
         cfg.default, cfg.agents = args.model, {}
 
     if args.command == "providers":
-        return cmd_providers(cfg)
+        return cmd_providers(cfg, {} if args.model else load_saved_models())
     if args.prompt:
         try:
-            asyncio.run(run_headless(workspace, cfg, args.mode, args.prompt))
+            asyncio.run(run_headless(workspace, cfg, args.mode, args.prompt, use_saved=not args.model))
         except KeyboardInterrupt:
             console.print("\n[red]abgebrochen[/]")
         return
     from .tui.app import CrewApp
-    CrewApp(workspace, cfg, args.mode).run()
+    CrewApp(workspace, cfg, args.mode, use_saved=not args.model).run()
 
 
 if __name__ == "__main__":

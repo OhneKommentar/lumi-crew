@@ -1,6 +1,8 @@
 """Loads crew.toml (./crew.toml, then ~/.config/crew/crew.toml)."""
 from __future__ import annotations
 
+import json
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,3 +59,34 @@ def load_config(workspace: Path, explicit: str | None = None) -> Config:
     if unknown:
         raise ValueError(f"crew.toml: unknown agents {sorted(unknown)} (known: {ROLES})")
     return cfg
+
+
+# ----------------------------------------------------------------------------- saved choices
+# Model choices made in the TUI (/agent, /model) survive restarts. They live outside the project
+# (~/.config/crew/state.json, override with $CREW_STATE) and take precedence over crew.toml [agents].
+def state_path() -> Path:
+    return Path(os.environ.get("CREW_STATE") or Path.home() / ".config/crew/state.json")
+
+
+def load_saved_models() -> dict[str, str]:
+    try:
+        data = json.loads(state_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    agents = data.get("agents", {}) if isinstance(data, dict) else {}
+    return {r: s for r, s in agents.items() if r in ROLES and isinstance(s, str) and s}
+
+
+def save_models(models: dict[str, str]):
+    path = state_path()
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    data["agents"] = {r: models[r] for r in ROLES if r in models}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(path)
