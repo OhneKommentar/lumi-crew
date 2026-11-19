@@ -255,7 +255,13 @@ def main(argv=None):
         return
     from .tui.app import CrewApp
     start = "continue" if args.cont else "resume" if args.resume else None
-    CrewApp(workspace, cfg, args.mode, use_saved=not args.model, start=start).run()
+    from .terminal_bg import apply as set_terminal_background
+    from .tui.widgets import BG
+    restore_background = set_terminal_background(BG)      # also colors the terminal's own padding
+    try:
+        CrewApp(workspace, cfg, args.mode, use_saved=not args.model, start=start).run()
+    finally:
+        restore_background()
 
 
 if __name__ == "__main__":

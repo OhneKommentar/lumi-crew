@@ -432,3 +432,34 @@ def test_published_build_has_no_claude_subscription_provider(isolated_state):
     plugins.load_plugins(force=True)                       # empty plugin dir in tests
     assert "claude" not in BUILTIN and "claude" not in known_providers()
     assert "claude" not in models.picker_providers() and "anthropic" in models.picker_providers()
+
+
+def test_terminal_background_apple_terminal(monkeypatch):
+    from lumi_crew import terminal_bg
+    calls = []
+    monkeypatch.setenv("TERM_PROGRAM", "Apple_Terminal")
+    monkeypatch.delenv("LUMI_CREW_TERMINAL_BG", raising=False)
+    monkeypatch.setattr(terminal_bg.sys.stdout, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(terminal_bg, "_tty", lambda: "/dev/ttys009")
+    monkeypatch.setattr(terminal_bg.shutil, "which", lambda n: "/usr/bin/osascript")
+
+    def fake(*args):
+        calls.append(args)
+        return "6447,7462,10000" if len(args) == 1 else "ok"
+    monkeypatch.setattr(terminal_bg, "_osascript", fake)
+    restore = terminal_bg.apply("#1A1C18")
+    assert calls[1] == ("/dev/ttys009", str(0x1A * 257), str(0x1C * 257), str(0x18 * 257))
+    restore()
+    assert calls[-1] == ("/dev/ttys009", "6447", "7462", "10000")         # previous color is back
+
+
+def test_terminal_background_osc_and_opt_out(monkeypatch, capsys):
+    from lumi_crew import terminal_bg
+    monkeypatch.setenv("TERM_PROGRAM", "ghostty")
+    monkeypatch.setattr(terminal_bg.sys.stdout, "isatty", lambda: True, raising=False)
+    restore = terminal_bg.apply("#1A1C18")
+    restore()
+    assert capsys.readouterr().out == "\033]11;#1A1C18\007\033]111\007"
+    monkeypatch.setenv("LUMI_CREW_TERMINAL_BG", "0")
+    terminal_bg.apply("#1A1C18")()
+    assert capsys.readouterr().out == ""
