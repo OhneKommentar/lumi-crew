@@ -34,7 +34,7 @@ class RecUI(UI):
     def emit(self, e):
         self.events.append(e)
 
-    async def ask_user(self, agent, q):
+    async def ask_user(self, agent, q, options=None):
         return self.answers.pop(0) if self.answers else ""
 
     async def approve(self, agent, title, preview):
@@ -183,3 +183,135 @@ async def test_shell_tool_runs_in_workspace(tmp_path):
     await s.send("x")
     out = [e.text for e in s.ui.events if e.kind == "tool_result" and e.agent == "tester"][0]
     assert "exit code 0" in out and str(tmp_path.resolve()) in out and "hi" in out
+
+
+# --------------------------------------------------------------------------- parallel, options, limits, usage
+def test_parse_multiple_tool_calls():
+    p = parse_reply('{"tools": [{"tool": "delegate", "args": {"agent": "planner", "task": "a"}},'
+                    ' {"tool": "delegate", "args": {"agent": "researcher", "task": "b"}}]}')
+    assert [c.args["agent"] for c in p.calls] == ["planner", "researcher"]
+
+
+async def test_parallel_delegations_run_concurrently(tmp_path):
+    import asyncio as aio
+    started, both = [], aio.Event()
+
+    class Par(Provider):
+        def __init__(self):
+            super().__init__("fake", "fake")
+            self.orch = [Reply("", [ToolCall("1", "delegate", {"agent": "planner", "task": "p"}),
+                                    ToolCall("2", "delegate", {"agent": "researcher", "task": "r"})]), Reply("end")]
+
+        async def complete(self, system, messages, tools):
+            role = system.split("**")[1].lower()
+            if role == "orchestrator":
+                return self.orch.pop(0)
+            started.append(role)
+            if len(started) == 2:
+                both.set()
+            await aio.wait_for(both.wait(), 2)        # deadlocks unless both run at the same time
+            return Reply(f"{role} done")
+
+    s = Session(tmp_path, Config(), RecUI(), mode="auto")
+    par = Par()
+    s.provider_for = lambda role: par
+    assert await s.send("go") == "end"
+    assert sorted(started) == ["planner", "researcher"]
+
+
+async def test_same_role_in_parallel_gets_unique_names(tmp_path):
+    import asyncio as aio
+    both = aio.Event()
+    seen = []
+
+    class Two(Provider):
+        def __init__(self):
+            super().__init__("fake", "fake")
+            self.orch = [Reply("", [ToolCall("1", "delegate", {"agent": "coder", "task": "a"}),
+                                    ToolCall("2", "delegate", {"agent": "coder", "task": "b"})]), Reply("end")]
+
+        async def complete(self, system, messages, tools):
+            if "**Orchestrator**" in system:
+                return self.orch.pop(0)
+            seen.append(1)
+            if len(seen) == 2:
+                both.set()
+            await aio.wait_for(both.wait(), 2)
+            return Reply("done")
+
+    s = Session(tmp_path, Config(), RecUI(), mode="auto")
+    two = Two()
+    s.provider_for = lambda role: two
+    await s.send("go")
+    names = {e.agent for e in s.ui.events if e.kind == "agent_start"}
+    assert {"coder", "coder#2"} <= names
+    assert not s.active                                   # instance names are released again
+
+
+async def test_ask_user_passes_options(tmp_path):
+    class OptUI(RecUI):
+        async def ask_user(self, agent, q, options=None):
+            self.got = options
+            return options[0]
+    ui = OptUI()
+    script = {"orchestrator": [call("ask_user", question="Sprache?", options=["Python (empfohlen)", "Go"]), "ok"]}
+    s = make_session(tmp_path, script, ui=ui)
+    await s.send("x")
+    assert ui.got == ["Python (empfohlen)", "Go"]
+    assert [m.content for m in s.orchestrator.messages if m.role == "tool"] == ["User answered: Python (empfohlen)"]
+
+
+async def test_limit_error_asks_for_fallback_and_continues(tmp_path):
+    from crew.providers.base import LimitError
+
+    class Limited(Provider):
+        def __init__(self):
+            super().__init__("agy", "m")
+            self.calls = 0
+
+        async def complete(self, system, messages, tools):
+            self.calls += 1
+            if self.calls == 1:
+                raise LimitError("You have exhausted your quota")
+            return Reply("done after switch")
+
+    class FallbackUI(RecUI):
+        async def choose_fallback(self, agent, role, current, error):
+            self.asked = (agent, role, current)
+            return "claude:haiku"
+
+    ui = FallbackUI()
+    s = Session(tmp_path, Config(), ui, mode="auto")
+    lim = Limited()
+    s.provider_for = lambda role: lim
+    assert await s.send("x") == "done after switch"
+    assert ui.asked == ("orchestrator", "orchestrator", "agy:m")
+    assert s.spec_for("orchestrator") == "claude:haiku"
+
+
+async def test_limit_error_without_fallback_reports_error(tmp_path):
+    from crew.providers.base import LimitError
+
+    class Limited(Provider):
+        async def complete(self, system, messages, tools):
+            raise LimitError("429 Too Many Requests")
+
+    s = Session(tmp_path, Config(), RecUI(), mode="auto")
+    s.provider_for = lambda role: Limited("agy", "m")
+    assert (await s.send("x")).startswith("ERROR")
+
+
+def test_limit_message_detection():
+    from crew.providers.base import is_limit_message
+    assert is_limit_message("Error: You've hit your usage limit. Try again in 3h")
+    assert is_limit_message("RESOURCE_EXHAUSTED: quota exceeded")
+    assert not is_limit_message("SyntaxError in line 3")
+
+
+def test_usage_record_and_summary():
+    from crew import usage
+    usage.USAGE.clear()
+    usage.record("claude", "haiku", input_tokens=1200, output_tokens=300, cost_usd=0.01, seconds=2)
+    usage.record("claude", "haiku", input_tokens=800, output_tokens=200, seconds=1)
+    assert usage.summary("claude") == "2 Aufrufe · 2.5k Tokens · $0.01"
+    assert "noch nicht genutzt" in usage.summary("codex")

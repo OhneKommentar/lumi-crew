@@ -1,6 +1,7 @@
 """Common data types and the Provider interface."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,6 +39,19 @@ class Reply:
 
 class ProviderError(Exception):
     pass
+
+
+class LimitError(ProviderError):
+    """The model/account hit a usage, rate or quota limit; switching the model may help."""
+
+
+_LIMIT_PATTERNS = re.compile(
+    r"rate.?limit|usage.?limit|quota|resource.?exhausted|too many requests|\b429\b|limit (reached|exceeded)"
+    r"|hit your .*limit|out of credits|insufficient.?credits|exceeded your|try again (later|in)", re.I)
+
+
+def is_limit_message(text: str) -> bool:
+    return bool(_LIMIT_PATTERNS.search(text or ""))
 
 
 class Provider:

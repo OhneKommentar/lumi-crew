@@ -28,6 +28,7 @@ class Session:
         self.delegations = 0
         self.review_rounds = 0
         self.orchestrator: Agent | None = None
+        self.active: set[str] = set()                # running agent instance names
 
     # ------------------------------------------------------------------ setup
     async def start(self):
@@ -48,7 +49,7 @@ class Session:
             self._providers[spec] = create_provider(spec, self.config.providers)
         return self._providers[spec]
 
-    def set_model(self, role: str, spec: str):
+    def set_model(self, role: str, spec: str, keep_history: bool = False):
         create_provider(spec, self.config.providers)   # validate early
         targets = list(ROLES) if role == "all" else [role]
         for r in targets:
@@ -56,8 +57,11 @@ class Session:
                 raise ValueError(f"unknown agent `{r}`")
             self.overrides[r] = spec
         if self.orchestrator and "orchestrator" in targets:
-            self.orchestrator.provider = self.provider_for("orchestrator")
-            self.orchestrator.messages.clear()   # native histories are not portable across providers
+            if keep_history:        # switching mid-run (usage limit): keep the conversation, drop native blocks
+                self.orchestrator.switch_provider(self.provider_for("orchestrator"))
+            else:
+                self.orchestrator.provider = self.provider_for("orchestrator")
+                self.orchestrator.messages.clear()
 
     def tools_for(self, role_name: str) -> list[Tool]:
         role = ROLES[role_name]
@@ -72,8 +76,8 @@ class Session:
             tools.append(available["ask_user"])
         return tools
 
-    def _make_agent(self, role_name: str) -> Agent:
-        return Agent(ROLES[role_name], self.provider_for(role_name), self.tools_for(role_name), self)
+    def _make_agent(self, role_name: str, instance: str | None = None) -> Agent:
+        return Agent(ROLES[role_name], self.provider_for(role_name), self.tools_for(role_name), self, instance)
 
     # ------------------------------------------------------------------ meta tools
     def _meta_tools(self) -> list[Tool]:
@@ -85,8 +89,13 @@ class Session:
                          "task": {"type": "string", "description": "complete task description incl. all context"}},
                         ["agent", "task"]),
                  "meta", self._delegate),
-            Tool("ask_user", "Ask the user one question and wait for the answer.",
-                 schema({"question": {"type": "string"}}, ["question"]), "meta", self._ask_user),
+            Tool("ask_user",
+                 "Ask the user ONE question and wait for the answer. Always give 2-5 concrete answer `options` "
+                 "(put the recommended one first and end it with ' (empfohlen)'); the user can also type their own.",
+                 schema({"question": {"type": "string"},
+                         "options": {"type": "array", "items": {"type": "string"},
+                                     "description": "2-5 short suggested answers"}}, ["question", "options"]),
+                 "meta", self._ask_user),
         ]
 
     async def _delegate(self, args, ctx) -> str:
@@ -102,14 +111,24 @@ class Session:
                         "mention the remaining issues in your report.")
             self.review_rounds += 1
         self.delegations += 1
-        agent = self._make_agent(role)
-        self.ui.emit(Event("agent_start", role, task, {"parent": ctx.agent, "model": agent.provider.label}))
-        result = await agent.run(task)
-        self.ui.emit(Event("agent_end", role, result))
-        return f"Result from {role}:\n{result}"
+        n, name = 1, role
+        while name in self.active:                   # parallel agents of the same role: coder, coder#2 …
+            n += 1
+            name = f"{role}#{n}"
+        self.active.add(name)
+        agent = self._make_agent(role, name)
+        self.ui.emit(Event("agent_start", name, task,
+                           {"parent": ctx.agent, "role": role, "model": agent.provider.label}))
+        try:
+            result = await agent.run(task)
+        finally:
+            self.active.discard(name)
+        self.ui.emit(Event("agent_end", name, result, {"role": role, "model": agent.provider.label}))
+        return f"Result from {name}:\n{result}"
 
     async def _ask_user(self, args, ctx) -> str:
-        answer = await self.ui.ask_user(ctx.agent, args["question"])
+        options = [str(o) for o in (args.get("options") or []) if str(o).strip()][:6]
+        answer = await self.ui.ask_user(ctx.agent, args["question"], options)
         return f"User answered: {answer}" if answer.strip() else "User gave no answer; use a sensible default."
 
     # ------------------------------------------------------------------ main entry
@@ -119,7 +138,8 @@ class Session:
         self.delegations = 0
         self.review_rounds = 0
         o = self.orchestrator
-        self.ui.emit(Event("agent_start", "orchestrator", text, {"parent": None, "model": o.provider.label}))
+        self.ui.emit(Event("agent_start", "orchestrator", text,
+                           {"parent": None, "role": "orchestrator", "model": o.provider.label}))
         result = await o.run(text)
         self.ui.emit(Event("agent_end", "orchestrator", result))
         return result

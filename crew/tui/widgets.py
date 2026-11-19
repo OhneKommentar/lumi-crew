@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.theme import Theme
-from textual.widgets import Input, OptionList, Static
+from textual.widgets import Input, Markdown, OptionList, Static
 from textual.widgets.option_list import Option
 
 # ----------------------------------------------------------------------------- palette
@@ -36,6 +36,7 @@ CREW_THEME = Theme(
 COMMANDS = [
     ("/agent", "Modell für einen Agenten wählen"),
     ("/mode", "Modus wählen (auch Shift+Tab)"),
+    ("/usage", "Verbrauch und Limits einer CLI anzeigen"),
     ("/agents", "Übersicht: Agenten und ihre Modelle"),
     ("/providers", "verfügbare Provider prüfen"),
     ("/mcp", "geladene MCP-Tools"),
@@ -220,3 +221,52 @@ class PromptInput(Input):
             self.suggest_list.display = False
         else:
             raise SkipAction()
+
+
+# ----------------------------------------------------------------------------- agent window (right side)
+class AgentPane(Vertical):
+    """Live window for one running sub-agent: the task it was given and what it is doing."""
+
+    DEFAULT_CSS = f"""
+    AgentPane {{ height: auto; max-height: 26; border: round {LINE}; border-title-color: {FG};
+                 border-subtitle-color: {DIM}; padding: 0 1; margin: 0 0 1 0; background: {BG}; }}
+    AgentPane.done {{ border: round {DIM}; }}
+    AgentPane .pane-label {{ color: {DIM}; height: 1; }}
+    AgentPane .pane-task {{ height: auto; max-height: 12; background: {BG}; }}
+    AgentPane .pane-task Markdown {{ padding: 0; margin: 0; }}
+    AgentPane .pane-log {{ height: auto; color: {DIM}; margin-top: 1; }}
+    """
+
+    MAX_LINES = 10
+
+    def __init__(self, agent: str, model: str, task: str, **kw):
+        super().__init__(**kw)
+        self.agent, self.model, self.task_text = agent, model, task
+        self.lines: list[Text] = []
+        self.started = 0.0
+
+    def compose(self) -> ComposeResult:
+        yield Static("Auftrag", classes="pane-label")
+        with VerticalScroll(classes="pane-task"):
+            yield Markdown(self.task_text or "_(leer)_")
+        yield Static(Text("startet …", style=DIM), classes="pane-log")
+
+    def on_mount(self):
+        self.border_title = Text.assemble(("● ", FG), (self.agent, f"bold {ACCENT}"))
+        self.border_subtitle = self.model
+        self._render_log()
+
+    def log_line(self, text: Text):
+        self.lines.append(text)
+        self.lines = self.lines[-self.MAX_LINES:]
+        self._render_log()
+
+    def _render_log(self):
+        logs = self.query(".pane-log")           # may not be composed yet right after mount()
+        if logs and self.lines:
+            logs.first(Static).update(Text("\n").join(self.lines))
+
+    def finish(self, label: str, ok: bool = True):
+        self.add_class("done")
+        self.border_title = Text.assemble(("✔ " if ok else "✗ ", OK if ok else ERR), (self.agent, f"bold {DIM}"))
+        self.border_subtitle = label

@@ -136,6 +136,17 @@ cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
 - Nachrichten, die du schickst, während die Crew arbeitet, landen in einer **Warteschlange** (`⏸ wartet` über der
   Eingabe) und laufen danach automatisch. Mit **↑** im leeren Eingabefeld holst du die letzte wartende Nachricht
   zurück zum Bearbeiten.
+- **Fenster rechts:** Sobald der Orchestrator delegiert, öffnet sich rechts ein Fenster pro Unter-Agent mit dem
+  **Auftrag (Prompt)**, den er bekommen hat, seinen Tool-Aufrufen live und der Laufzeit. Unabhängige Aufgaben
+  delegiert der Orchestrator **parallel**, dann stehen rechts mehrere Fenster. Fertige Fenster bleiben kurz stehen.
+- **Rückfragen als Auswahl:** Clarifier und Orchestrator fragen immer mit Antwortvorschlägen (Ziffer oder ↑↓/Enter),
+  dazu „✎ Eigene Antwort schreiben…“. Fragen paralleler Agenten kommen nacheinander.
+- **`/usage`:** CLI wählen und sehen, was crew in dieser Session verbraucht hat (Aufrufe, Tokens, bei claude die Kosten)
+  plus Konto/Limits: claude = Abo und Login-Ablauf (`claude auth status`), codex = 5-h-/Wochen-Limit aus dem
+  lokalen codex-Log. agy bietet keine Limit-Abfrage.
+- **Usage-Limit:** Läuft ein Modell ins Limit (Quota, 429, „usage limit“ …), fragt crew, ob ein anderes Modell
+  übernehmen soll. Es schlägt sofort erreichbare Alternativen vor (andere CLIs, lokale Ollama-/LM-Studio-Modelle) oder
+  öffnet die volle Provider/Modell-Auswahl. Der Agent macht danach mit seinem bisherigen Verlauf weiter.
 - `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
 - Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
 - Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.

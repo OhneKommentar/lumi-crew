@@ -123,3 +123,31 @@ async def list_models(provider: str, custom: dict | None = None, refresh: bool =
         raise ProviderError(f"{provider}: keine Modelle gefunden")
     _cache[provider] = models
     return models
+
+
+async def fallback_suggestions(current: str, custom: dict | None = None) -> list[tuple[str, str]]:
+    """Quick alternatives when `current` ("provider:model") hits a usage limit.
+    Other providers first (a limit usually applies to the whole account), then other models of the same
+    provider if their list is already known. Only reachable providers are suggested."""
+    from .providers import availability, parse_spec
+    cur_provider, cur_model = parse_spec(current)
+    names = [n for n in PICKER_PROVIDERS if n != cur_provider]
+    checks = await asyncio.gather(*(asyncio.to_thread(availability, n, custom or {}) for n in names))
+    out: list[tuple[str, str]] = []
+    for name, (ok, _) in zip(names, checks):
+        if not ok:
+            continue
+        if name == "claude":
+            out += [("claude:sonnet", "Claude Code · Sonnet"), ("claude:haiku", "Claude Code · Haiku, schnell")]
+        elif name in ("agy", "codex"):
+            out.append((name, f"{name} · Standardmodell"))
+        else:                                   # local servers: list is cheap
+            try:
+                models = await list_models(name, custom)
+                out += [(f"{name}:{m}", f"lokal · {name}") for m, _ in models[:2]]
+            except Exception:
+                continue
+    for m, desc in _cache.get(cur_provider, []):
+        if m != cur_model and len([o for o in out if o[0].startswith(cur_provider + ":")]) < 2:
+            out.append((f"{cur_provider}:{m}", f"gleicher Provider · {desc}"))
+    return out

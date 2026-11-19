@@ -1,12 +1,13 @@
 """The agent loop: ask the model, run its tool calls, repeat until it gives a final answer."""
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING
 
 from ..events import Event
 from ..permissions import PathError
-from ..providers.base import Message, Provider, ProviderError
+from ..providers.base import LimitError, Message, Provider, ProviderError
 from ..tools.base import Tool, ToolContext, truncate
 from .roles import Role
 
@@ -54,7 +55,10 @@ class Agent:
         return env
 
     def emit(self, kind: str, text: str = "", **data):
-        self.session.ui.emit(Event(kind, self.name, text, data))
+        try:
+            self.session.ui.emit(Event(kind, self.name, text, data))
+        except Exception:       # a display problem must never break the agent's work
+            pass
 
     async def run(self, task: str) -> str:
         """Add `task` as a user message and loop until the model answers without tool calls."""
@@ -63,8 +67,7 @@ class Agent:
         last_text = ""
         for _ in range(max_steps):
             try:
-                reply = await self.provider.complete(self.system_prompt(), self.messages,
-                                                     [t.spec() for t in self.tools.values()])
+                reply = await self._complete()
             except ProviderError as e:
                 self.emit("error", str(e))
                 return f"ERROR: the {self.name} agent's model failed: {e}"
@@ -75,11 +78,39 @@ class Agent:
                 return reply.text
             if reply.text:
                 self.emit("text", reply.text)
-            for call in reply.tool_calls:
-                result = await self.execute(call.name, call.args)
+            calls = reply.tool_calls
+            if len(calls) > 1 and all(c.name == "delegate" for c in calls):
+                # independent delegations run in parallel (one window per agent in the TUI)
+                results = await asyncio.gather(*(self.execute(c.name, c.args) for c in calls))
+            else:
+                results = [await self.execute(c.name, c.args) for c in calls]
+            for call, result in zip(calls, results):
                 self.messages.append(Message("tool", result, tool_call_id=call.id, name=call.name))
         self.emit("warn", f"stopped after {max_steps} steps")
         return f"(stopped after {max_steps} steps) {last_text}"
+
+    async def _complete(self):
+        """One model call; on a usage limit ask the user for another model and retry."""
+        while True:
+            try:
+                return await self.provider.complete(self.system_prompt(), self.messages,
+                                                    [t.spec() for t in self.tools.values()])
+            except LimitError as e:
+                current = self.provider.label
+                self.emit("warn", f"{current} hat ein Usage-Limit erreicht")
+                spec = await self.session.ui.choose_fallback(self.name, self.role.name, current, str(e))
+                if not spec:
+                    raise
+                self.session.set_model(self.role.name, spec, keep_history=True)
+                self.switch_provider(self.session.provider_for(self.role.name))
+                self.emit("info", f"weiter mit {spec}")
+
+    def switch_provider(self, provider: Provider):
+        """Change the model mid-run. Provider-native blocks (thinking, signatures) can't be replayed elsewhere."""
+        if provider is not self.provider:
+            for m in self.messages:
+                m.raw = None
+        self.provider = provider
 
     async def execute(self, name: str, args: dict) -> str:
         tool = self.tools.get(name)

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 
-from .base import Message, Provider, ProviderError, Reply, ToolCall, ToolSpec
+from .. import usage
+
+from .base import LimitError, Message, Provider, ProviderError, Reply, ToolCall, ToolSpec, is_limit_message
 
 
 # --------------------------------------------------------------------------- OpenAI-compatible
@@ -47,10 +50,15 @@ class OpenAICompatProvider(Provider):
         if tools:
             kwargs["tools"] = [{"type": "function", "function": {
                 "name": t.name, "description": t.description, "parameters": t.parameters}} for t in tools]
+        start = time.time()
         try:
             r = await self.client.chat.completions.create(**kwargs)
         except Exception as e:  # openai raises many typed errors; surface them uniformly
-            raise ProviderError(f"{self.name}: {e}") from e
+            usage.record(self.name, self.model, seconds=time.time() - start, error=True)
+            raise (LimitError if is_limit_message(str(e)) else ProviderError)(f"{self.name}: {e}") from e
+        u = r.usage
+        usage.record(self.name, self.model, input_tokens=getattr(u, "prompt_tokens", 0) or 0,
+                     output_tokens=getattr(u, "completion_tokens", 0) or 0, seconds=time.time() - start)
         msg = r.choices[0].message
         calls = []
         for tc in msg.tool_calls or []:
@@ -111,6 +119,7 @@ class AnthropicProvider(Provider):
         if self.effort:
             kwargs["output_config"] = {"effort": self.effort}
         a = self._anthropic
+        start = time.time()
         try:
             if self.model in FALLBACK_MODELS:  # server-side refusal fallback
                 resp = await self.client.beta.messages.create(
@@ -122,12 +131,14 @@ class AnthropicProvider(Provider):
         except a.NotFoundError as e:
             raise ProviderError(f"anthropic: unknown model `{self.model}`") from e
         except a.RateLimitError as e:
-            raise ProviderError("anthropic: rate limited, try again later") from e
+            raise LimitError("anthropic: rate limit reached") from e
         except a.APIStatusError as e:
             raise ProviderError(f"anthropic: API error {e.status_code}: {e.message}") from e
         except a.APIConnectionError as e:
             raise ProviderError("anthropic: network error") from e
 
+        usage.record(self.name, self.model, input_tokens=resp.usage.input_tokens,
+                     output_tokens=resp.usage.output_tokens, seconds=time.time() - start)
         if resp.stop_reason == "refusal":
             return Reply(text="(The model declined this request.)")
         text, calls = [], []
@@ -186,11 +197,16 @@ class GeminiProvider(Provider):
             config.tools = [T.Tool(function_declarations=[
                 T.FunctionDeclaration(name=t.name, description=t.description, parameters_json_schema=t.parameters)
                 for t in tools])]
+        start = time.time()
         try:
             resp = await self.client.aio.models.generate_content(
                 model=self.model, contents=self._convert(messages), config=config)
         except Exception as e:
-            raise ProviderError(f"gemini: {e}") from e
+            usage.record(self.name, self.model, seconds=time.time() - start, error=True)
+            raise (LimitError if is_limit_message(str(e)) else ProviderError)(f"gemini: {e}") from e
+        meta = resp.usage_metadata
+        usage.record(self.name, self.model, input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                     output_tokens=getattr(meta, "candidates_token_count", 0) or 0, seconds=time.time() - start)
         if not resp.candidates or not resp.candidates[0].content:
             return Reply(text="(empty response from Gemini)")
         content = resp.candidates[0].content
