@@ -9,7 +9,6 @@ from .base import Provider, ProviderError
 # Built-in provider names. More can be added in crew.toml under [providers.<name>].
 BUILTIN: dict[str, dict] = {
     "agy":      {"type": "agy"},
-    "claude":   {"type": "claude_cli"},
     "codex":    {"type": "codex_cli"},
     "anthropic": {"type": "anthropic", "api_key_env": "ANTHROPIC_API_KEY"},
     "gemini":   {"type": "gemini", "api_key_env": "GEMINI_API_KEY"},
@@ -18,7 +17,13 @@ BUILTIN: dict[str, dict] = {
     "ollama":   {"type": "openai_compat", "base_url": "http://localhost:11434/v1"},
 }
 
-CLI_BINARIES = {"agy": "agy", "claude_cli": "claude", "codex_cli": "codex"}
+CLI_BINARIES = {"agy": "agy", "codex_cli": "codex"}
+
+
+def known_providers(custom: dict | None = None) -> set[str]:
+    from ..plugins import PLUGINS, load_plugins
+    load_plugins()
+    return set(BUILTIN) | set(custom or {}) | set(PLUGINS)
 
 
 def parse_spec(spec: str) -> tuple[str, str | None]:
@@ -27,16 +32,19 @@ def parse_spec(spec: str) -> tuple[str, str | None]:
 
 
 def provider_config(name: str, custom: dict) -> dict:
-    cfg = dict(BUILTIN.get(name, {}))
+    from ..plugins import get as plugin
+    p = plugin(name)
+    cfg = {"type": p.type} if p else dict(BUILTIN.get(name, {}))
     cfg.update(custom.get(name, {}))
     if "type" not in cfg:
-        raise ProviderError(f"unknown provider `{name}` (known: {', '.join(sorted(set(BUILTIN) | set(custom)))})")
+        raise ProviderError(f"unknown provider `{name}` (known: {', '.join(sorted(known_providers(custom)))})")
     return cfg
 
 
 def create_provider(spec: str, custom: dict | None = None) -> Provider:
     from .api_providers import AnthropicProvider, GeminiProvider, OpenAICompatProvider
-    from .cli_providers import AgyProvider, ClaudeCliProvider, CodexCliProvider
+    from ..plugins import by_type
+    from .cli_providers import AgyProvider, CodexCliProvider
 
     name, model = parse_spec(spec)
     cfg = provider_config(name, custom or {})
@@ -45,8 +53,6 @@ def create_provider(spec: str, custom: dict | None = None) -> Provider:
     t = cfg["type"]
     if t == "agy":
         return AgyProvider(name, model)
-    if t == "claude_cli":
-        return ClaudeCliProvider(name, model)
     if t == "codex_cli":
         return CodexCliProvider(name, model)
     if t == "anthropic":
@@ -55,6 +61,9 @@ def create_provider(spec: str, custom: dict | None = None) -> Provider:
         return GeminiProvider(name, model, api_key=api_key)
     if t == "openai_compat":
         return OpenAICompatProvider(name, model, base_url=cfg.get("base_url"), api_key=api_key)
+    plugin = by_type(t)
+    if plugin:
+        return plugin.factory(name, model)
     raise ProviderError(f"unknown provider type `{t}`")
 
 
@@ -65,6 +74,11 @@ def availability(name: str, custom: dict | None = None) -> tuple[bool, str]:
     except ProviderError as e:
         return False, str(e)
     t = cfg["type"]
+    from ..plugins import by_type
+    plugin = by_type(t)
+    if plugin and plugin.binary:
+        path = shutil.which(plugin.binary)
+        return (True, f"CLI found: {path}") if path else (False, f"`{plugin.binary}` not installed")
     if t in CLI_BINARIES:
         path = shutil.which(CLI_BINARIES[t])
         return (True, f"CLI found: {path}") if path else (False, f"`{CLI_BINARIES[t]}` not installed")

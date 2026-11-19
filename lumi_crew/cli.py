@@ -25,7 +25,7 @@ from . import __version__
 from .agents.roles import ROLES
 from .config import MODES, load_config, load_saved_models
 from .events import Event, UI
-from .providers import BUILTIN, availability
+from .providers import availability, known_providers, provider_config
 
 console = Console()
 
@@ -111,9 +111,12 @@ def cmd_providers(cfg, saved: dict | None = None):
     from rich.table import Table
     t = Table(title="Lumi Crew · providers")
     t.add_column("provider"), t.add_column("type"), t.add_column("status")
-    for name in sorted(set(BUILTIN) | set(cfg.providers)):
+    for name in sorted(known_providers(cfg.providers)):
         ok, msg = availability(name, cfg.providers)
-        typ = {**BUILTIN.get(name, {}), **cfg.providers.get(name, {})}.get("type", "?")
+        try:
+            typ = provider_config(name, cfg.providers)["type"]
+        except Exception:
+            typ = "?"
         t.add_row(name, typ, f"[green]✔ {msg}[/]" if ok else f"[red]✗ {msg}[/]")
     console.print(t)
     t2 = Table(title="agents → model")
@@ -171,13 +174,13 @@ def cmd_setup(cfg):
     import getpass
     import subprocess
 
-    from .models import PICKER_PROVIDERS
+    from .models import picker_providers
     from .onboarding import status, store_key
 
-    console.print(Panel("Prüft agy, codex, claude, Claude-API, Ollama und LM Studio und hilft beim Einrichten.\n"
+    console.print(Panel("Prüft agy, codex, Claude-API, Ollama, LM Studio (und Plugins) und hilft beim Einrichten.\n"
                         "Es wird nichts ohne deine Bestätigung installiert.", title="Lumi Crew · setup",
                         border_style=AGENT_COLOR))
-    for name in PICKER_PROVIDERS:
+    for name in picker_providers(cfg.providers):
         for _ in range(4):
             st = asyncio.run(status(name, cfg.providers))
             if st.ok:
@@ -214,7 +217,7 @@ def main(argv=None):
     ap.add_argument("-w", "--workspace", default=".", help="project directory (default: current dir)")
     ap.add_argument("-p", "--print", dest="prompt", help="run one request headless and print the result")
     ap.add_argument("--mode", choices=MODES, help="permission mode at start")
-    ap.add_argument("--model", help='use this "provider:model" for all agents, e.g. claude:sonnet')
+    ap.add_argument("--model", help='use this "provider:model" for all agents, e.g. codex or ollama:qwen3')
     ap.add_argument("--config", help="path to lumi-crew.toml")
     ap.add_argument("-V", "--version", action="version", version=f"Lumi Crew {__version__}")
     ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last chat of this folder")
@@ -233,6 +236,9 @@ def main(argv=None):
         cfg.default, cfg.agents = args.model, {}
 
     from .onboarding import load_stored_keys
+    from .plugins import load_plugins
+    for problem in load_plugins():                    # local providers in ~/.config/lumi-crew/plugins/
+        console.print(f"[yellow]⚠ {escape(problem)}[/]")
     load_stored_keys(cfg.providers)                   # API keys saved with /agent or `lumi-crew setup`
     if args.command == "setup":
         return cmd_setup(cfg)

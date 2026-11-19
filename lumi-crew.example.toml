@@ -8,7 +8,7 @@ mode = "manual"
 
 # Per-agent overrides (any agent you leave out uses `default`)
 [agents]
-orchestrator = "claude:sonnet"          # Claude Code CLI login
+orchestrator = "anthropic:claude-opus-5-5"   # Claude per API key
 coder        = "codex"                  # Codex CLI login, its default model
 reviewer     = "agy:gemini-4-argon-medium"
 # clarifier  = "agy:gemini-3.8-flash-low"

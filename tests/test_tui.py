@@ -126,8 +126,8 @@ async def test_slash_commands(tmp_path):
     async with app.run_test() as pilot:
         await pilot.press(*"/mode auto", "enter")
         assert app.session.permissions.mode == "auto"
-        await pilot.press(*"/model coder claude:haiku", "enter")
-        assert app.session.spec_for("coder") == "claude:haiku"
+        await pilot.press(*"/model coder ollama:qwen3", "enter")
+        assert app.session.spec_for("coder") == "ollama:qwen3"
 
 
 async def test_history_up_down_keeps_draft(tmp_path):
@@ -262,7 +262,7 @@ async def test_limit_fallback_picker(tmp_path, monkeypatch):
     from lumi_crew.providers.base import LimitError
 
     async def fake_suggestions(current, custom=None):
-        return [("claude:haiku", "Claude Code · Haiku"), ("codex", "codex · Standard")]
+        return [("ollama:qwen3", "lokal"), ("codex", "codex · Standard")]
     monkeypatch.setattr(tui_app, "fallback_suggestions", fake_suggestions)
 
     class Limited(Provider):
@@ -294,15 +294,15 @@ async def test_usage_picker(tmp_path, monkeypatch):
         return [f"Konto von {name}"]
     monkeypatch.setattr(usage, "account_info", fake_account)
     usage.USAGE.clear()
-    usage.record("claude", "haiku", input_tokens=10, output_tokens=5)
+    usage.record("anthropic", "haiku", input_tokens=10, output_tokens=5)
     app = app_with(tmp_path, {})
     async with app.run_test() as pilot:
         await pilot.press(*"/usage", "enter")
         assert await wait_for(pilot, lambda: app.picker.active)
-        await pilot.press("3")                                                 # claude
+        await pilot.press("3")                                                 # anthropic
         assert await wait_for(pilot, lambda: not app.picker.display)
-        md = [w for w in app.query("Markdown") if "Usage · claude" in w.source]
-        assert md and "Konto von claude" in md[0].source and "Aufrufe | 1" in md[0].source
+        md = [w for w in app.query("Markdown") if "Usage · anthropic" in w.source]
+        assert md and "Konto von anthropic" in md[0].source and "Aufrufe | 1" in md[0].source
 
 
 async def test_agent_picker_choice_survives_restart(tmp_path, monkeypatch):
@@ -315,12 +315,12 @@ async def test_agent_picker_choice_survives_restart(tmp_path, monkeypatch):
         assert await wait_for(pilot, lambda: app.picker.active)
         await pilot.press("5")                                         # reviewer
         assert await wait_for(pilot, lambda: "Provider" in str(app.picker.query_one("#picker-title").render()))
-        await pilot.press("3")                                         # claude
+        await pilot.press("3")                                         # anthropic
         assert await wait_for(pilot, lambda: app.picker.query_one("#picker-list").option_count == 2)
         await pilot.press("2")                                         # model-a
         assert await wait_for(pilot, lambda: not app.picker.active)
     restarted = CrewApp(tmp_path, Config(), "manual")
-    assert restarted.session.spec_for("reviewer") == "claude:model-a"
+    assert restarted.session.spec_for("reviewer") == "anthropic:model-a"
     assert CrewApp(tmp_path, Config(), "manual", use_saved=False).session.spec_for("reviewer") == Config().default
 
 
@@ -456,7 +456,7 @@ async def test_api_key_is_asked_masked_and_never_shown(tmp_path, monkeypatch):
         assert await wait_for(pilot, lambda: app.picker.active)
         await pilot.press("1")                                         # orchestrator
         assert await wait_for(pilot, lambda: "Provider" in str(app.picker.query_one("#picker-title").render()))
-        await pilot.press("4")                                         # anthropic → key needed
+        await pilot.press("3")                                         # anthropic → key needed
         assert await wait_for(pilot, lambda: app.secret_input)
         assert app.prompt.password
         await pilot.press(*"sk-ant-secret123", "enter")

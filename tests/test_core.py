@@ -279,7 +279,7 @@ async def test_limit_error_asks_for_fallback_and_continues(tmp_path):
     class FallbackUI(RecUI):
         async def choose_fallback(self, agent, role, current, error):
             self.asked = (agent, role, current)
-            return "claude:haiku"
+            return "codex:gpt-x"
 
     ui = FallbackUI()
     s = Session(tmp_path, Config(), ui, mode="auto")
@@ -287,7 +287,7 @@ async def test_limit_error_asks_for_fallback_and_continues(tmp_path):
     s.provider_for = lambda role: lim
     assert await s.send("x") == "done after switch"
     assert ui.asked == ("orchestrator", "orchestrator", "agy:m")
-    assert s.spec_for("orchestrator") == "claude:haiku"
+    assert s.spec_for("orchestrator") == "codex:gpt-x"
 
 
 async def test_limit_error_without_fallback_reports_error(tmp_path):
@@ -312,16 +312,16 @@ def test_limit_message_detection():
 def test_usage_record_and_summary():
     from lumi_crew import usage
     usage.USAGE.clear()
-    usage.record("claude", "haiku", input_tokens=1200, output_tokens=300, cost_usd=0.01, seconds=2)
-    usage.record("claude", "haiku", input_tokens=800, output_tokens=200, seconds=1)
-    assert usage.summary("claude") == "2 Aufrufe · 2.5k Tokens · $0.01"
+    usage.record("anthropic", "haiku", input_tokens=1200, output_tokens=300, cost_usd=0.01, seconds=2)
+    usage.record("anthropic", "haiku", input_tokens=800, output_tokens=200, seconds=1)
+    assert usage.summary("anthropic") == "2 Aufrufe · 2.5k Tokens · $0.01"
     assert "noch nicht genutzt" in usage.summary("codex")
 
 
 def test_model_choice_is_saved_and_loaded(tmp_path, isolated_state):
     s = Session(tmp_path, Config(), RecUI())
     s.set_model("coder", "codex:gpt-x", persist=True)
-    s.set_model("tester", "claude:haiku")                      # not persisted
+    s.set_model("tester", "ollama:qwen3")                      # not persisted
     s2 = Session(tmp_path, Config(), RecUI())                   # "next start"
     assert s2.spec_for("coder") == "codex:gpt-x"
     assert s2.spec_for("tester") == Config().default
@@ -332,9 +332,9 @@ def test_saved_choice_beats_crew_toml_and_reset_forgets(tmp_path, isolated_state
     cfg = Config(agents={"coder": "agy:from-toml"})
     s = Session(tmp_path, cfg, RecUI())
     assert s.spec_for("coder") == "agy:from-toml"
-    s.set_model("all", "claude:sonnet", persist=True)
+    s.set_model("all", "codex:gpt-y", persist=True)
     s2 = Session(tmp_path, cfg, RecUI())
-    assert all(s2.spec_for(r) == "claude:sonnet" for r in ROLES)
+    assert all(s2.spec_for(r) == "codex:gpt-y" for r in ROLES)
     s2.forget_models()
     assert Session(tmp_path, cfg, RecUI()).spec_for("coder") == "agy:from-toml"
 
@@ -382,7 +382,53 @@ async def test_onboarding_status_for_missing_cli(tmp_path, monkeypatch):
     monkeypatch.setattr(onboarding.shutil, "which", lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None)
     st = await onboarding.status("codex")
     assert not st.ok and st.step.kind == "install" and st.step.command == ["brew", "install", "--cask", "codex"]
-    st = await onboarding.status("claude")
-    assert st.step.command == ["brew", "install", "--cask", "claude-code"]
     st = await onboarding.status("agy")
     assert st.step.kind == "manual"
+
+
+PLUGIN_SRC = '''
+def register(api):
+    class Echo(api.TextToolProvider):
+        async def complete_text(self, system, prompt):
+            return '{"final": "hello from plugin"}'
+
+    async def models():
+        return [("m1", "Model 1")]
+
+    async def status():
+        return api.Status(True, "plugin ready")
+
+    api.add_provider(name="myprov", type="myprov_cli", factory=lambda n, m: Echo(n, m),
+                     label="CLI · Mein Plugin", list_models=models, status=status,
+                     fallbacks=[("myprov:m1", "Plugin")])
+'''
+
+
+def test_plugin_registers_a_provider(tmp_path, isolated_state):
+    import asyncio
+    from lumi_crew import models, onboarding, plugins
+    from lumi_crew.providers import create_provider, known_providers
+    d = isolated_state.parent / "plugins"
+    d.mkdir()
+    (d / "mine.py").write_text(PLUGIN_SRC)
+    (d / "broken.py").write_text("def register(api):\n    raise RuntimeError('kaputt')\n")
+    errors = plugins.load_plugins(force=True)
+    try:
+        assert len(errors) == 1 and "broken.py" in errors[0]
+        assert "myprov" in known_providers() and "myprov" in models.picker_providers()
+        assert models.provider_label("myprov") == "CLI · Mein Plugin"
+        p = create_provider("myprov:m1")
+        reply = asyncio.run(p.complete("sys", [Message("user", "hi")], []))
+        assert reply.text == "hello from plugin"
+        assert asyncio.run(models.list_models("myprov")) == [("m1", "Model 1")]
+        assert asyncio.run(onboarding.status("myprov")).reason == "plugin ready"
+    finally:
+        plugins.PLUGINS.clear()
+
+
+def test_published_build_has_no_claude_subscription_provider(isolated_state):
+    from lumi_crew import models, plugins
+    from lumi_crew.providers import BUILTIN, known_providers
+    plugins.load_plugins(force=True)                       # empty plugin dir in tests
+    assert "claude" not in BUILTIN and "claude" not in known_providers()
+    assert "claude" not in models.picker_providers() and "anthropic" in models.picker_providers()

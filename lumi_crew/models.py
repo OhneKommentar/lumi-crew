@@ -17,14 +17,27 @@ import shutil
 from .providers import provider_config
 from .providers.base import ProviderError
 
-PICKER_PROVIDERS = ["agy", "codex", "claude", "anthropic", "ollama", "lmstudio"]
+PICKER_PROVIDERS = ["agy", "codex", "anthropic", "ollama", "lmstudio"]   # built-in; plugins are added
 
-CLAUDE_ALIASES = [
-    ("opus", "Claude Opus · neueste Version (Alias)"),
-    ("sonnet", "Claude Sonnet · neueste Version (Alias)"),
-    ("haiku", "Claude Haiku · neueste Version (Alias)"),
-    ("fable", "Claude Fable · neueste Version (Alias)"),
-]
+PROVIDER_LABELS = {"agy": "CLI · Antigravity", "codex": "CLI · OpenAI Codex", "anthropic": "API · Claude per API-Key",
+                   "ollama": "lokal · Ollama", "lmstudio": "lokal · LM Studio"}
+
+
+def picker_providers(custom: dict | None = None) -> list[str]:
+    """Providers offered in /agent, /usage and `lumi-crew setup`: built-ins, plugins, custom ones."""
+    from .plugins import PLUGINS, load_plugins
+    load_plugins()
+    names = list(PICKER_PROVIDERS)
+    names[2:2] = [n for n, p in PLUGINS.items() if p.picker and n not in names]
+    names += [n for n in (custom or {}) if n not in names]
+    return names
+
+
+def provider_label(name: str) -> str:
+    from .plugins import get
+    p = get(name)
+    return p.label if p else PROVIDER_LABELS.get(name, "eigener Provider")
+
 
 _cache: dict[str, list[tuple[str, str]]] = {}
 
@@ -103,14 +116,16 @@ async def list_models(provider: str, custom: dict | None = None, refresh: bool =
         return _cache[provider]
     cfg = provider_config(provider, custom or {})
     t = cfg["type"]
-    if t == "agy":
+    from .plugins import by_type
+    plugin = by_type(t)
+    if plugin:
+        if not plugin.list_models:
+            raise ProviderError(f"{provider}: das Plugin liefert keine Modellliste")
+        models = await plugin.list_models()
+    elif t == "agy":
         models = await _agy()
     elif t == "codex_cli":
         models = await _codex()
-    elif t == "claude_cli":
-        if not shutil.which("claude"):
-            raise ProviderError("`claude` ist nicht installiert")
-        models = list(CLAUDE_ALIASES)
     elif t == "openai_compat":
         models = await _openai_compat(cfg)
     elif t == "anthropic":
@@ -131,14 +146,18 @@ async def fallback_suggestions(current: str, custom: dict | None = None) -> list
     provider if their list is already known. Only reachable providers are suggested."""
     from .providers import availability, parse_spec
     cur_provider, cur_model = parse_spec(current)
-    names = [n for n in PICKER_PROVIDERS if n != cur_provider]
+    from .plugins import get as plugin
+    names = [n for n in picker_providers(custom) if n != cur_provider]
     checks = await asyncio.gather(*(asyncio.to_thread(availability, n, custom or {}) for n in names))
     out: list[tuple[str, str]] = []
     for name, (ok, _) in zip(names, checks):
         if not ok:
             continue
-        if name == "claude":
-            out += [("claude:sonnet", "Claude Code · Sonnet"), ("claude:haiku", "Claude Code · Haiku, schnell")]
+        p = plugin(name)
+        if p is not None:
+            out += list(p.fallbacks)
+        elif name == "anthropic":
+            out.append(("anthropic", "Claude per API-Key · Standardmodell"))
         elif name in ("agy", "codex"):
             out.append((name, f"{name} · Standardmodell"))
         else:                                   # local servers: list is cheap

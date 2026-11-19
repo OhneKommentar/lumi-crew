@@ -116,17 +116,15 @@ async def status(provider: str, custom: dict | None = None) -> Status:
     cfg = provider_config(provider, custom or {})
     t = cfg["type"]
 
-    if t == "claude_cli":
-        if not shutil.which("claude"):
-            return Status(False, "nicht installiert", _install("Claude Code", True, "claude-code"))
-        code, out = await _run("claude", "auth", "status")
-        try:
-            logged_in = json.loads(out).get("loggedIn", False)
-        except ValueError:
-            logged_in = code == 0
-        if not logged_in:
-            return Status(False, "nicht eingeloggt", Step("login", "Bei Claude Code anmelden?", ["claude", "auth", "login"]))
-        return Status(True, "eingeloggt")
+    from .plugins import by_type
+    plugin = by_type(t)
+    if plugin is not None:
+        if plugin.status:
+            return await plugin.status()
+        if plugin.binary and not shutil.which(plugin.binary):
+            return Status(False, "nicht installiert", Step("manual", f"`{plugin.binary}` fehlt",
+                                                           help=f"Installiere `{plugin.binary}` (Plugin {provider})."))
+        return Status(True, "Plugin")
 
     if t == "codex_cli":
         if not shutil.which("codex"):

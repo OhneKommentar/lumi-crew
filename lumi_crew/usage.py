@@ -4,7 +4,7 @@ Usage tracking for /usage.
 1. What crew itself used in this session, recorded by every provider call
    (calls, tokens, cost if the CLI reports it, time).
 2. Account / limit information each CLI exposes locally:
-   claude  `claude auth status` (plan, login expiry)
+   plugins their own account_info()
    codex   `codex login status` + rate limits from the newest local session log (~/.codex/sessions)
    agy     no usage/limit command; only crew's own counters
    ollama / lmstudio   local, no limits
@@ -127,15 +127,10 @@ async def account_info(provider: str, ptype: str) -> list[str]:
     """Markdown lines with what the CLI/server tells about the account and its limits."""
     lines: list[str] = []
     try:
-        if ptype == "claude_cli":
-            d = json.loads(await _run("claude", "auth", "status"))
-            lines += ["| | |", "|---|---|",
-                      f"| Login | {'✔ ' + d.get('authMethod', '') if d.get('loggedIn') else '✗ nicht eingeloggt'} |",
-                      f"| Abo | {d.get('subscriptionType') or '–'} |"]
-            if d.get("loginExpiresAt"):
-                lines.append(f"| Login läuft ab | {d['loginExpiresAt'][:10]} |")
-            lines.append("\nDie Claude-Code-CLI gibt ihre Abo-Limits nicht über die Kommandozeile aus. "
-                         "Genauer geht es mit `/usage` direkt in Claude Code.")
+        from .plugins import by_type
+        plugin = by_type(ptype)
+        if plugin is not None:
+            lines += await plugin.account_info() if plugin.account_info else ["Plugin ohne Konto-Infos."]
         elif ptype == "codex_cli":
             status = await _run("codex", "login", "status")
             lines += ["| | |", "|---|---|", f"| Login | {status.splitlines()[-1] if status else '–'} |"]

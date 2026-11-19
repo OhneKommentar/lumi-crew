@@ -5,6 +5,15 @@ Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-19
+
+### Entfernt
+- Provider `claude` (Claude-Code-CLI mit claude.ai-Abo-Login). Claude gibt es weiter per API-Key (`anthropic`).
+
+### Hinzugefügt
+- Lokale Provider-Plugins: `~/.config/lumi-crew/plugins/*.py` mit `register(api)`; erscheinen in `/agent`,
+  `/usage`, `lumi-crew setup` und bei Limit-Vorschlägen. Defekte Plugins erzeugen nur eine Warnung.
+
 ## [0.2.0] - 2026-11-19
 
 ### Hinzugefügt
@@ -31,6 +40,7 @@ Erstes Release.
 - Usage-Limit-Erkennung mit Vorschlägen für ein Ersatzmodell.
 - MCP-Client für den Researcher, Headless-Modus `lumi-crew -p`.
 
-[Unreleased]: https://github.com/OhneKommentar/lumi-crew/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/OhneKommentar/lumi-crew/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/OhneKommentar/lumi-crew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/OhneKommentar/lumi-crew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/OhneKommentar/lumi-crew/releases/tag/v0.1.0

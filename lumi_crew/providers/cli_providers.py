@@ -68,39 +68,6 @@ class AgyProvider(TextToolProvider):
         return str(d.get("response", "")).strip()
 
 
-class ClaudeCliProvider(TextToolProvider):
-    """Claude Code CLI (`claude -p`), uses the Claude Code login / subscription."""
-    kind = "claude_cli"
-
-    async def complete_text(self, system: str, prompt: str) -> str:
-        args = ["claude", "-p", "--tools", "", "--system-prompt", system,
-                "--no-session-persistence", "--strict-mcp-config", "--output-format", "json"]
-        if self.model:
-            args += ["--model", self.model]
-        start = time.time()
-        with tempfile.TemporaryDirectory(prefix="crew-claude-") as tmp:
-            try:
-                out = await run_cli(args, cwd=tmp, stdin_text=prompt)
-            except ProviderError:  # incl. LimitError
-                usage.record(self.name, self.model, seconds=time.time() - start, error=True)
-                raise
-        try:
-            d = json.loads(out)
-        except json.JSONDecodeError:
-            usage.record(self.name, self.model, seconds=time.time() - start)
-            return out.strip()
-        u = d.get("usage") or {}
-        usage.record(self.name, self.model,
-                     input_tokens=u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
-                     + u.get("cache_creation_input_tokens", 0),
-                     output_tokens=u.get("output_tokens", 0), cost_usd=d.get("total_cost_usd") or 0,
-                     seconds=time.time() - start)
-        if d.get("is_error"):
-            msg = str(d.get("result") or "error")
-            raise (LimitError if is_limit_message(msg) else ProviderError)(f"claude: {msg}")
-        return str(d.get("result", "")).strip()
-
-
 class CodexCliProvider(TextToolProvider):
     """OpenAI Codex CLI (`codex exec`), uses the Codex login. Sandbox is read-only."""
     kind = "codex_cli"

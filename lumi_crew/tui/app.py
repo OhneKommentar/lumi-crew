@@ -19,10 +19,11 @@ from .. import chats, usage
 from ..agents.roles import ROLES
 from ..config import MODES, Config
 from ..events import Event, UI
-from ..models import PICKER_PROVIDERS, fallback_suggestions, list_models
+from ..models import fallback_suggestions, list_models, picker_providers, provider_label
+from ..plugins import load_plugins
 from ..onboarding import Step, store_key
 from ..onboarding import status as onboarding_status
-from ..providers import BUILTIN, availability, provider_config
+from ..providers import availability, known_providers, provider_config
 from ..providers.base import ProviderError
 from ..session import Session
 from .. import __version__
@@ -42,8 +43,6 @@ MODE_INFO = {
     "plan": ("⏸ plan mode", "nur lesen und planen"),
 }
 
-PROVIDER_KIND = {"agy": "CLI · Antigravity", "codex": "CLI · OpenAI Codex", "claude": "CLI · Claude Code (Abo)",
-                 "anthropic": "API · Claude per API-Key", "ollama": "lokal · Ollama", "lmstudio": "lokal · LM Studio"}
 STEP_HINT = {"install": "enter = installieren", "login": "enter = anmelden", "key": "enter = Key eingeben",
              "start": "enter = starten", "manual": "enter = Anleitung"}
 
@@ -191,6 +190,8 @@ class CrewApp(App):
             saved = ", ".join(f"{r} → {spec}" for r, spec in s.saved_models.items())
             welcome.append(f"\n  gespeichert {saved}", style=DIM)
         self.transcript.mount(Static(welcome, id="welcome"))
+        for problem in load_plugins():
+            self.add_line(Text(f"⚠ {problem}", style=WARN))
         self.run_worker(self.startup(), group="setup")
 
     async def startup(self):
@@ -585,11 +586,11 @@ class CrewApp(App):
     # ------------------------------------------------------------------ pickers
     async def provider_options(self, current: str | None) -> tuple[list, list[str]]:
         s = self.session
-        names = PICKER_PROVIDERS + [n for n in s.config.providers if n not in PICKER_PROVIDERS]
+        names = picker_providers(s.config.providers)
         states = await asyncio.gather(*(onboarding_status(n, s.config.providers) for n in names))
         opts = []
         for i, (n, st) in enumerate(zip(names, states), start=1):
-            detail = PROVIDER_KIND.get(n, "eigener Provider")
+            detail = provider_label(n)
             if not st.ok:
                 detail += f"  ✗ {st.reason}" + (f" · {STEP_HINT[st.step.kind]}" if st.step else "")
             opts.append((n, row(n, detail, width=10, number=i, current=n == current)))
@@ -799,9 +800,10 @@ class CrewApp(App):
 
     async def pick_usage(self):
         s = self.session
-        names = PICKER_PROVIDERS + [n for n in usage.USAGE if n not in PICKER_PROVIDERS]
+        names = picker_providers(s.config.providers)
+        names += [n for n in usage.USAGE if n not in names]
         async with self.ui_lock:
-            opts = [(n, row(n, f"{PROVIDER_KIND.get(n, 'Provider')} · {usage.summary(n)}", width=10, number=i))
+            opts = [(n, row(n, f"{provider_label(n)} · {usage.summary(n)}", width=10, number=i))
                     for i, n in enumerate(names, start=1)]
             name = await self.picker.choose(Text("Usage: welche CLI?", style=f"bold {FG}"), opts,
                                             hint="↑↓ auswählen · enter anzeigen · esc schließen")
@@ -864,7 +866,7 @@ class CrewApp(App):
                                  f"{ROLES[r].summary} |" for r in ROLES)
                 self.add(Markdown(f"| Agent | Modell | Aufgabe |\n|---|---|---|\n{rows}", classes="msg"))
             elif cmd == "/providers":
-                names = sorted(set(BUILTIN) | set(s.config.providers))
+                names = sorted(known_providers(s.config.providers))
                 status = await asyncio.gather(*(asyncio.to_thread(availability, n, s.config.providers) for n in names))
                 rows = "\n".join(f"| {n} | {'✔' if ok else '✗'} {msg} |" for n, (ok, msg) in zip(names, status))
                 self.add(Markdown(f"| Provider | Status |\n|---|---|\n{rows}", classes="msg"))
