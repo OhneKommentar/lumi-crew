@@ -1,8 +1,8 @@
 """TUI tests with Textual's Pilot and a scripted provider."""
-import crew.tui.app as tui_app
-from crew.config import Config
-from crew.providers.base import Provider, Reply, ToolCall
-from crew.tui.app import CrewApp
+import lumi_crew.tui.app as tui_app
+from lumi_crew.config import Config
+from lumi_crew.providers.base import Provider, Reply, ToolCall
+from lumi_crew.tui.app import CrewApp
 
 
 class Scripted(Provider):
@@ -259,7 +259,7 @@ async def test_delegation_opens_agent_windows(tmp_path):
 
 
 async def test_limit_fallback_picker(tmp_path, monkeypatch):
-    from crew.providers.base import LimitError
+    from lumi_crew.providers.base import LimitError
 
     async def fake_suggestions(current, custom=None):
         return [("claude:haiku", "Claude Code · Haiku"), ("codex", "codex · Standard")]
@@ -288,7 +288,7 @@ async def test_limit_fallback_picker(tmp_path, monkeypatch):
 
 
 async def test_usage_picker(tmp_path, monkeypatch):
-    from crew import usage
+    from lumi_crew import usage
 
     async def fake_account(name, ptype):
         return [f"Konto von {name}"]
@@ -356,7 +356,7 @@ async def test_agent_windows_share_height(tmp_path):
 
 
 async def test_chat_is_saved_and_resumed(tmp_path):
-    from crew import chats
+    from lumi_crew import chats
 
     class Echo(Provider):
         def __init__(self):
@@ -393,7 +393,7 @@ async def test_chat_is_saved_and_resumed(tmp_path):
 
 
 async def test_continue_flag_and_new_chat(tmp_path):
-    from crew import chats
+    from lumi_crew import chats
     c = chats.new_chat(tmp_path)
     c.entries = [{"kind": "user", "text": "alter Chat"}]
     chats.save(c)

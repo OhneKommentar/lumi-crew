@@ -1,4 +1,4 @@
-"""A crew session: workspace + config + permissions + agents, driven by a UI."""
+"""A Lumi Crew session: workspace + config + permissions + agents, driven by a UI."""
 from __future__ import annotations
 
 import asyncio
@@ -160,7 +160,7 @@ class Session:
         return result
 
     def forget_models(self):
-        """Drop all saved model choices (back to crew.toml / defaults)."""
+        """Drop all saved model choices (back to lumi-crew.toml / defaults)."""
         for r in self.saved_models:
             self.overrides.pop(r, None)
         self.saved_models = {}

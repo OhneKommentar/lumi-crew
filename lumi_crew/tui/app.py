@@ -1,4 +1,4 @@
-"""Textual TUI for crew: a clean, terminal-like chat with the agent team.
+"""Textual TUI for Lumi Crew: a clean, terminal-like chat with the agent team.
 
 Left: the conversation. Right: one live window per running sub-agent (task + activity).
 Bottom: spinner line, picker (selections, approvals, questions), waiting messages, prompt, status line.
@@ -23,7 +23,9 @@ from ..models import PICKER_PROVIDERS, fallback_suggestions, list_models
 from ..providers import BUILTIN, availability, provider_config
 from ..providers.base import ProviderError
 from ..session import Session
-from .widgets import (ACCENT, BG, CREW_THEME, DIM, ERR, FG, LINE, OK, PANEL, USER, WARN, AgentPane, Picker,
+from .. import __version__
+from .widgets import (ACCENT, BG, DIM, ERR, FG, LIME, LINE, LUMI_THEME, OK, PANEL, USER, USER_BG, WARN,
+                      AgentPane, Picker,
                       PromptInput, row)
 
 SPINNER = "✻✳✶✷✸✹✺✹✸✷✶✳"
@@ -81,7 +83,7 @@ class TuiUI(UI):
 
 
 class CrewApp(App):
-    TITLE = "crew"
+    TITLE = "Lumi Crew"
     CSS = f"""
     Screen {{ background: {BG}; color: {FG}; }}
     #main {{ height: 1fr; }}
@@ -90,7 +92,7 @@ class CrewApp(App):
               scrollbar-color: {PANEL}; }}
     #welcome {{ border: round {LINE}; padding: 0 1; width: auto; max-width: 100%; margin-bottom: 1; }}
     .msg {{ height: auto; margin-top: 1; }}
-    .user {{ background: #2e2b22; color: {USER}; padding: 0 1; margin-top: 1; }}
+    .user {{ background: {USER_BG}; color: {USER}; padding: 0 1; margin-top: 1; }}
     .who {{ height: auto; }}
     .line {{ height: auto; color: {DIM}; }}
     Markdown {{ background: {BG}; margin: 0; padding: 0 0 0 2; }}
@@ -157,8 +159,8 @@ class CrewApp(App):
                 yield Static(id="model")
 
     def on_mount(self):
-        self.register_theme(CREW_THEME)
-        self.theme = "crew"
+        self.register_theme(LUMI_THEME)
+        self.theme = "lumi"
         self.transcript = self.query_one("#transcript", VerticalScroll)
         self.pane_box = self.query_one("#panes", Vertical)
         self.prompt = self.query_one("#prompt", PromptInput)
@@ -170,11 +172,11 @@ class CrewApp(App):
         s = self.session
         home = str(Path.home())
         ws = str(s.workspace).replace(home, "~")
-        cfg = str(s.config.path).replace(home, "~") if s.config.path else "keine crew.toml, Standardwerte"
+        cfg = str(s.config.path).replace(home, "~") if s.config.path else "keine lumi-crew.toml, Standardwerte"
         welcome = Text()
-        welcome.append("✻ ", style=ACCENT)
-        welcome.append("crew", style=f"bold {FG}")
-        welcome.append("  ·  multi-agent coding cli\n\n", style=DIM)
+        welcome.append("ℒ ", style=f"bold {LIME}")
+        welcome.append("Lumi Crew", style=f"bold {FG}")
+        welcome.append(f"  v{__version__}  ·  multi-agent coding cli\n\n", style=DIM)
         for key, desc in (("  /agent", " Modelle wählen · "), ("/usage", " Verbrauch · "), ("/help", " Befehle · "),
                           ("shift+tab", " Modus\n\n")):
             welcome.append(key, style=FG)
@@ -279,7 +281,7 @@ class CrewApp(App):
         waiting = self.pending_answer is not None or self.picker.active
         verb = "wartet auf dich" if waiting else ("arbeiten …" if len(self.running) > 1 else "arbeitet …")
         t = Text()
-        t.append(f"{SPINNER[self.frame]} ", style=ACCENT)
+        t.append(f"{SPINNER[self.frame]} ", style=LIME)
         t.append(f"{who} {verb}", style=FG)
         t.append(f"  ({int(now - self.started_at)}s · esc zum Abbrechen)", style=DIM)
         self.activity.update(t)
@@ -659,7 +661,7 @@ class CrewApp(App):
                              (f" · {chats.ago(chat.updated)} · {chat.user_turns} Nachrichten", DIM))
         self.add(Static(note, classes="msg"))
         if chat.workspace != here:
-            self.add_line(Text(f"⚠ Der Chat stammt aus {chat.workspace}; crew arbeitet weiter in {here}.",
+            self.add_line(Text(f"⚠ Der Chat stammt aus {chat.workspace}; Lumi Crew arbeitet weiter in {here}.",
                                style=WARN))
 
     async def pick_chat(self):
@@ -758,7 +760,7 @@ class CrewApp(App):
                 s.forget_models()
                 self.update_status()
                 self.add_line(Text.assemble(("✻ ", ACCENT), ("Gespeicherte Modellwahl gelöscht, ", DIM),
-                                            (f"alle Agenten nutzen wieder crew.toml / {s.config.default}", FG)))
+                                            (f"alle Agenten nutzen wieder lumi-crew.toml / {s.config.default}", FG)))
             elif cmd == "/model":
                 if len(args) != 2:
                     raise ValueError("Nutzung: /model <agent|all> <provider:model>, oder /agent zum Durchklicken")
@@ -778,7 +780,7 @@ class CrewApp(App):
             elif cmd == "/mcp":
                 tools = s.mcp_tools
                 self.add(Markdown("\n".join(f"- `{t.name}`: {t.description}" for t in tools)
-                                  or "Keine MCP-Tools geladen (in `crew.toml` unter `[mcp.<name>]` konfigurieren).",
+                                  or "Keine MCP-Tools geladen (in `lumi-crew.toml` unter `[mcp.<name>]` konfigurieren).",
                                   classes="msg"))
             elif cmd in ("/quit", "/exit"):
                 self.exit()

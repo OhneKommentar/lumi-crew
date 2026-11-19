@@ -5,5 +5,5 @@ import pytest
 def isolated_state(tmp_path, monkeypatch):
     """Never touch the real ~/.config/crew/state.json in tests."""
     path = tmp_path / "state.json"
-    monkeypatch.setenv("CREW_STATE", str(path))
+    monkeypatch.setenv("LUMI_CREW_STATE", str(path))
     return path

@@ -1,11 +1,16 @@
-"""Loads crew.toml (./crew.toml, then ~/.config/crew/crew.toml)."""
+"""Configuration: lumi-crew.toml (project folder, then ~/.config/lumi-crew/), plus saved state."""
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+APP_DIR = Path.home() / ".config" / "lumi-crew"
+LEGACY_DIR = Path.home() / ".config" / "crew"          # before the rename to Lumi Crew
+CONFIG_NAMES = ("lumi-crew.toml", "crew.toml")        # crew.toml still works
 
 ROLES = ["orchestrator", "clarifier", "planner", "coder", "reviewer", "tester", "researcher"]
 MODES = ["manual", "accept-edits", "auto", "plan"]
@@ -31,7 +36,9 @@ class Config:
 def find_config(workspace: Path, explicit: str | None = None) -> Path | None:
     if explicit:
         return Path(explicit)
-    for p in (workspace / "crew.toml", Path.cwd() / "crew.toml", Path.home() / ".config/crew/crew.toml"):
+    candidates = [d / n for d in (workspace, Path.cwd()) for n in CONFIG_NAMES]
+    candidates += [APP_DIR / "lumi-crew.toml", LEGACY_DIR / "crew.toml"]
+    for p in candidates:
         if p.is_file():
             return p
     return None
@@ -54,18 +61,33 @@ def load_config(workspace: Path, explicit: str | None = None) -> Config:
         if key in limits:
             setattr(cfg, key, int(limits[key]))
     if cfg.mode not in MODES:
-        raise ValueError(f"crew.toml: mode must be one of {MODES}")
+        raise ValueError(f"{path.name}: mode must be one of {MODES}")
     unknown = set(cfg.agents) - set(ROLES)
     if unknown:
-        raise ValueError(f"crew.toml: unknown agents {sorted(unknown)} (known: {ROLES})")
+        raise ValueError(f"{path.name}: unknown agents {sorted(unknown)} (known: {ROLES})")
     return cfg
 
 
 # ----------------------------------------------------------------------------- saved choices
 # Model choices made in the TUI (/agent, /model) survive restarts. They live outside the project
-# (~/.config/crew/state.json, override with $CREW_STATE) and take precedence over crew.toml [agents].
+# (~/.config/lumi-crew/state.json, override with $LUMI_CREW_STATE) and take precedence over
+# lumi-crew.toml [agents]. Chats are stored next to it.
 def state_path() -> Path:
-    return Path(os.environ.get("CREW_STATE") or Path.home() / ".config/crew/state.json")
+    override = os.environ.get("LUMI_CREW_STATE") or os.environ.get("CREW_STATE")
+    if override:
+        return Path(override)
+    migrate_legacy()
+    return APP_DIR / "state.json"
+
+
+def migrate_legacy():
+    """One-time copy of saved models + chats from ~/.config/crew (pre-rename) to ~/.config/lumi-crew."""
+    if APP_DIR.exists() or not LEGACY_DIR.is_dir():
+        return
+    try:
+        shutil.copytree(LEGACY_DIR, APP_DIR)
+    except OSError:
+        pass
 
 
 def load_saved_models() -> dict[str, str]:

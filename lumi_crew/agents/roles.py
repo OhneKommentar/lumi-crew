@@ -17,7 +17,7 @@ class Role:
 
     @property
     def prompt(self) -> str:
-        return resources.files("crew.agents").joinpath(f"prompts/{self.name}.md").read_text()
+        return resources.files(__package__).joinpath(f"prompts/{self.name}.md").read_text()
 
 
 ROLES: dict[str, Role] = {r.name: r for r in [

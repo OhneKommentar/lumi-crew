@@ -149,14 +149,14 @@ async def account_info(provider: str, ptype: str) -> list[str]:
                 if credits:
                     lines.append(f"| Credits | {'unbegrenzt' if credits.get('unlimited') else credits.get('balance', '–')} |")
                 lines.append(f"\n_Stand: {_when(rl['as_of'])}, letzte lokal gespeicherte codex-Session "
-                             "(crew-Aufrufe laufen ephemer und aktualisieren das nicht)._")
+                             "(Lumi-Crew-Aufrufe laufen ephemer und aktualisieren das nicht)._")
             else:
                 lines.append("\nKeine Limit-Daten gefunden (noch keine lokale codex-Session).")
         elif ptype == "agy":
             lines.append("Antigravity (`agy`) bietet keinen Befehl für Kontingent oder Limits. "
-                         "Unten steht, was crew in dieser Session über agy verbraucht hat.")
+                         "Unten steht, was Lumi Crew in dieser Session über agy verbraucht hat.")
         elif ptype == "openai_compat":
-            lines.append("Lokales bzw. eigenes Modell: keine Abo-Limits, nur die Zähler von crew.")
+            lines.append("Lokales bzw. eigenes Modell: keine Abo-Limits, nur die Zähler von Lumi Crew.")
         else:
             lines.append("Keine Konto-Infos verfügbar.")
     except FileNotFoundError as e:
@@ -169,8 +169,8 @@ async def account_info(provider: str, ptype: str) -> list[str]:
 def session_table(provider: str) -> list[str]:
     s = USAGE.get(provider)
     if not s or not s.calls:
-        return ["_In dieser crew-Session noch nicht genutzt._"]
-    rows = ["| crew-Session | |", "|---|---|",
+        return ["_In dieser Lumi-Crew-Session noch nicht genutzt._"]
+    rows = ["| Lumi-Crew-Session | |", "|---|---|",
             f"| Aufrufe | {s.calls}" + (f" ({s.errors} Fehler)" if s.errors else "") + " |",
             f"| Tokens | {short_tokens(s.input_tokens)} rein · {short_tokens(s.output_tokens)} raus |",
             f"| Zeit | {s.seconds:.0f} s |",

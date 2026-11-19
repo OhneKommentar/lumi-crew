@@ -1,6 +1,6 @@
 """
-Saved chats: every conversation is stored as JSON in ~/.config/crew/chats/<id>.json
-(next to state.json, so $CREW_STATE also moves it). A chat holds
+Saved chats: every conversation is stored as JSON in ~/.config/lumi-crew/chats/<id>.json
+(next to state.json, so $LUMI_CREW_STATE also moves it). A chat holds
   - `entries`:  what the transcript showed (to re-render it on resume)
   - `messages`: the orchestrator's conversation (to continue where it stopped)
 """

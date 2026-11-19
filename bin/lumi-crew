@@ -1,0 +1,5 @@
+#!/bin/zsh
+# Dev launcher for Lumi Crew from this checkout (independent of the venv's .pth files,
+# which macOS/iCloud may mark hidden in ~/Documents). Installed users run `lumi-crew` from brew.
+DIR="${0:A:h:h}"
+PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" exec "$DIR/.venv/bin/python" -m lumi_crew "$@"

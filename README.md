@@ -1,35 +1,101 @@
-# crew: eine Multi-Agent-Coding-CLI
+<p align="center">
+  <img src="docs/logo.png" width="150" alt="Lumi Crew Logo">
+</p>
 
-`crew` ist ein Terminal-Tool im Stil von Claude Code. Im Hintergrund arbeitet ein **Team spezialisierter Agenten**:
+<h1 align="center">Lumi Crew</h1>
+
+<p align="center">
+  Eine Multi-Agent-Coding-CLI im Stil von Claude Code: ein Team spezialisierter KI-Agenten in deinem Terminal.<br>
+  <a href="https://github.com/OhneKommentar/lumi-crew/releases"><img alt="Release" src="https://img.shields.io/github/v/release/OhneKommentar/lumi-crew?color=6B705C"></a>
+  <a href="https://github.com/OhneKommentar/lumi-crew/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/OhneKommentar/lumi-crew/actions/workflows/ci.yml/badge.svg"></a>
+</p>
+
 Ein **Orchestrator** entscheidet dynamisch, welcher Spezialist als Nächstes dran ist. Er klärt den Auftrag mit
-Gegenfragen, plant, lässt Code schreiben, reviewen und testen und recherchiert bei Bedarf über MCP im Web.
+Gegenfragen, plant, lässt Code schreiben, reviewen und testen und recherchiert bei Bedarf über MCP im Web. Unabhängige
+Aufgaben laufen parallel. Jeder Agent bekommt rechts ein eigenes Live-Fenster.
 
+![Lumi Crew](docs/screenshot.png)
+
+## Installation
+
+```bash
+brew install ohnekommentar/tap/lumi-crew
+lumi-crew --version
 ```
- ╭──────────────────────────────────────────────╮
- │ ✻ crew  ·  multi-agent coding cli             │
- │   /agent Modelle wählen · /help · shift+tab   │
- ╰──────────────────────────────────────────────╯
 
- ❯ Bau mir ein wc-Tool in Python                       ← eigene Nachricht (gelb)
+Alternativ ohne Homebrew (Python ≥ 3.11):
 
- ● planner  agy:gemini-3.8-flash-medium
-   ⎿  Plane ein wc-Tool mit pytest-Tests
-     ⎿  list_dir()
-   ▶ ⎿  ✔ fertig · Antwort anzeigen
-
- ● coder  codex:gpt-6.2-sol
-   ⎿  Implementiere wordcount.py laut Plan
-     ⎿  write_file(path=wordcount.py, …)
-
- ● orchestrator  agy:gemini-3.8-flash-medium
-   Fertig! wordcount.py zählt Zeilen, Wörter und Zeichen …
-
- ✻ tester arbeitet …  (12s · esc zum Abbrechen)
- ╭──────────────────────────────────────────────╮
- │ ❯ Was soll die Crew bauen?  (/ für Befehle)   │
- ╰──────────────────────────────────────────────╯
- ⏵⏵ auto  alles automatisch · shift+tab     orchestrator · agy:gemini-3.8-flash-medium
+```bash
+uv tool install git+https://github.com/OhneKommentar/lumi-crew@v0.1.0
 ```
+
+Lumi Crew bringt selbst kein Modell mit. Es braucht mindestens einen dieser Zugänge:
+
+| Provider | Voraussetzung | Tool-Calling |
+|---|---|---|
+| `agy` | [Antigravity](https://antigravity.google)-CLI, eingeloggt | JSON-Text-Protokoll |
+| `claude` | Claude-Code-CLI, eingeloggt (`claude -p`, eigene Tools aus) | JSON-Text-Protokoll |
+| `codex` | Codex-CLI, eingeloggt (`codex exec`, Sandbox read-only) | JSON-Text-Protokoll |
+| `ollama`, `lmstudio` | lokaler Server (`localhost:11434` bzw. `:1234`) | nativ |
+| `anthropic` | `ANTHROPIC_API_KEY` oder `ant auth login` | nativ |
+| `gemini` | `GEMINI_API_KEY` | nativ |
+| `openai`, eigene | API-Key bzw. `base_url` in `lumi-crew.toml` | nativ |
+
+`lumi-crew providers` zeigt, was auf deinem Rechner gerade nutzbar ist. Die CLI-Provider laufen als **reine
+Text-LLMs**: in einem leeren Temp-Ordner und ohne eigene Tools. Den Workspace fassen ausschließlich die Tools von
+Lumi Crew an, und zwar mit Permission-Prüfung. Logins werden nie ausgelesen, Lumi Crew ruft nur die offiziellen CLIs auf.
+
+## Nutzung
+
+```bash
+lumi-crew                        # TUI im aktuellen Ordner
+lumi-crew -w ~/projekt --mode plan
+lumi-crew -c                     # letzten Chat in diesem Ordner fortsetzen
+lumi-crew --resume               # gespeicherten Chat auswählen
+lumi-crew chats -a               # alle gespeicherten Chats
+lumi-crew -p "Bau X" --mode auto # headless, ein Auftrag (wird auch gespeichert)
+lumi-crew --model claude:sonnet  # alle Agenten auf ein Modell, nur für diesen Lauf
+lumi-crew providers              # Provider + welcher Agent welches Modell nutzt
+```
+
+### In der TUI
+
+| | |
+|---|---|
+| `/` | Befehle mit Autocomplete (↑↓, Tab, Enter) |
+| `/agent` | Agent → Provider (agy, codex, claude, ollama, lmstudio) → Modell. Listen kommen **live** aus den CLIs/Servern. Die Wahl wird gespeichert. |
+| `/usage` | CLI wählen → Verbrauch dieser Session (Aufrufe, Tokens, Kosten) plus Abo/Limits, soweit die CLI sie verrät |
+| `/resume` · `/new` | frühere Chats fortsetzen · neuen Chat beginnen |
+| `/mode` · Shift+Tab | Modus: manual · accept-edits · auto · plan |
+| `/agents` · `/providers` · `/mcp` | Übersichten |
+| `/model reset` | gespeicherte Modellwahl löschen |
+| ↑ / ↓ | Verlauf. Im leeren Feld holt ↑ eine wartende Nachricht zum Bearbeiten zurück |
+| Esc · Ctrl+C | abbrechen · beenden |
+
+- **Rückfragen** kommen immer als Auswahl mit Vorschlägen und „✎ Eigene Antwort schreiben…“.
+- **Freigaben** (manual/accept-edits) erscheinen inline mit Diff bzw. Befehl: `y` ja · `a` immer · `n`/Esc nein.
+- **Usage-Limit:** Läuft ein Modell ins Limit, schlägt Lumi Crew erreichbare Alternativen vor. Der Agent macht danach
+  mit seinem Verlauf weiter.
+- **Nachrichten während eines Laufs** landen in einer Warteschlange und laufen danach automatisch.
+
+### Modi
+
+| Modus | Dateien schreiben | Shell | MCP |
+|---|---|---|---|
+| **manual** | fragt (mit Diff) | fragt | fragt |
+| **accept-edits** | automatisch | fragt | automatisch |
+| **auto** | automatisch | automatisch, gefährliche Befehle geblockt | automatisch |
+| **plan** | ✗ | ✗ | automatisch, danach Auswahl, in welchem Modus umgesetzt wird |
+
+Alle Pfade sind auf den Workspace begrenzt, Symlinks eingeschlossen.
+
+## Konfiguration
+
+Optional als `lumi-crew.toml` im Projektordner oder in `~/.config/lumi-crew/`. Vorlage: [`lumi-crew.example.toml`](lumi-crew.example.toml).
+Modelle pro Agent, eigene Provider (z. B. OpenRouter), MCP-Server für den Researcher und Limits wie maximale
+Review-Runden.
+
+Gespeichert wird in `~/.config/lumi-crew/`: `state.json` enthält die Modellwahl aus `/agent`, `chats/` alle Chats.
 
 ## Architektur
 
@@ -37,182 +103,58 @@ Gegenfragen, plant, lässt Code schreiben, reviewen und testen und recherchiert 
 flowchart TD
     U[User] <--> TUI[Textual TUI / headless CLI]
     TUI <--> S[Session]
-    S --> O[🎯 Orchestrator]
-    O -- delegate --> C[❓ Clarifier] & P[🗺 Planner] & K[⌨ Coder] & R[🔍 Reviewer] & T[🧪 Tester] & W[🌐 Researcher]
+    S --> O[Orchestrator]
+    O -- "delegate (parallel möglich)" --> C[Clarifier] & P[Planner] & K[Coder] & R[Reviewer] & T[Tester] & W[Researcher]
     C -- ask_user --> TUI
-    O -- ask_user --> TUI
     subgraph Tools
       FS[read_file · list_dir · grep]
       WR[write_file · edit_file]
       SH[run_shell]
-      MCP[MCP: web_search · fetch_page · search_pdf]
+      MCP[MCP-Tools]
     end
     C & P & R --> FS
     K --> FS & WR
     T --> FS & SH
     W --> FS & MCP
-    WR & SH & MCP --> PM{PermissionManager<br/>manual · accept-edits · auto · plan}
-    PM -- "ask" --> TUI
+    WR & SH & MCP --> PM{Permissions<br/>manual · accept-edits · auto · plan}
+    PM -- ask --> TUI
     O & C & P & K & R & T & W --> PL[Provider-Layer]
-    PL --> agy[agy CLI] & cl[claude CLI] & cx[codex CLI] & an[Anthropic API] & ge[Gemini API] & oa[OpenAI-kompatibel<br/>LM Studio · Ollama · OpenRouter]
+    PL --> agy & claude & codex & ollama & lmstudio & api[Anthropic · Gemini · OpenAI]
 ```
-
-- **Orchestrator-Pattern:** Nur der Orchestrator hat das Tool `delegate(agent, task)`. Jeder Spezialist startet
-  mit leerem Kontext und eigenem Tool-Set und bekommt einen vollständigen Auftrag. Sein Ergebnis geht als
-  Tool-Result an den Orchestrator zurück, wie bei Subagenten in Claude Code.
-- **Harte Grenzen:** `max_steps` pro Agent, `max_delegations` und `max_review_rounds` pro Anfrage. Damit kann die
-  Coder⇄Reviewer-Schleife nicht endlos laufen.
-- **Rechte nach Rolle:** Nur der Coder schreibt, nur der Tester führt Shell-Befehle aus, nur der Researcher nutzt
-  MCP. Reviewer und Planner können nur lesen.
 
 | Agent | Tools | Ergebnis |
 |---|---|---|
-| 🎯 orchestrator | `delegate`, `ask_user`, lesen | Abschlussbericht |
-| ❓ clarifier | `ask_user`, lesen | Spec (Ziel, Anforderungen, Annahmen, Akzeptanzkriterien) |
-| 🗺 planner | lesen, `grep` | Dateien + Schritte + Teststrategie |
-| ⌨ coder | lesen, `write_file`, `edit_file` | geänderte Dateien |
-| 🔍 reviewer | lesen | `APPROVED` / `CHANGES_REQUESTED` + Issues |
-| 🧪 tester | lesen, `run_shell` | `PASS` / `FAIL` + Output |
-| 🌐 researcher | lesen, MCP-Tools | Zusammenfassung + Quellen |
+| orchestrator | `delegate`, `ask_user`, lesen | Abschlussbericht |
+| clarifier | `ask_user`, lesen | Spec (Ziel, Anforderungen, Annahmen, Akzeptanzkriterien) |
+| planner | lesen, `grep` | Dateien, Schritte, Teststrategie |
+| coder | lesen, `write_file`, `edit_file` | geänderte Dateien |
+| reviewer | lesen | `APPROVED` / `CHANGES_REQUESTED` |
+| tester | lesen, `run_shell` | `PASS` / `FAIL` + Output |
+| researcher | lesen, MCP-Tools | Zusammenfassung + Quellen |
 
-## Provider: viele Modelle, ein Interface
+Harte Grenzen (`max_steps`, `max_delegations`, `max_review_rounds`) verhindern endlose Schleifen.
 
-| Provider | Auth | Tool-Calling |
-|---|---|---|
-| `agy` | Antigravity-Login (Google) | JSON-Text-Protokoll |
-| `claude` | Claude-Code-Login (`claude -p`, Tools aus) | JSON-Text-Protokoll |
-| `codex` | Codex-Login (`codex exec`, Sandbox read-only) | JSON-Text-Protokoll |
-| `anthropic` | `ANTHROPIC_API_KEY` oder `ant auth login` | nativ |
-| `gemini` | `GEMINI_API_KEY` | nativ |
-| `openai`, `lmstudio`, `ollama`, eigene | Key per Env / lokal | nativ |
-
-Die CLI-Agenten laufen als **reine Text-LLMs**: in einem leeren Temp-Ordner und ohne eigene Tools. Sie antworten
-mit `{"tool": …, "args": …}` oder `{"final": …}` (`crew/providers/text_tools.py`), sodass ausschließlich crews
-Tools mit Permission-Prüfung den Workspace anfassen. Abo-Logins werden nie ausgelesen. crew ruft nur die
-offiziellen CLIs auf.
-
-Jeder Agent kann ein anderes Modell nutzen (`crew.toml` → `[agents]` oder zur Laufzeit `/model coder codex`).
-
-## Modi
-
-| Modus | Dateien schreiben | Shell | MCP |
-|---|---|---|---|
-| **manual** | fragt (mit Diff) | fragt | fragt |
-| **accept-edits** | automatisch | fragt | automatisch |
-| **auto** | automatisch | automatisch, gefährliche Befehle geblockt | automatisch |
-| **plan** | ✗ | ✗ | automatisch |
-
-Wechseln mit **Shift+Tab** oder `/mode <name>`. Nach einem Lauf im Plan-Modus fragt crew, in welchem Modus der Plan
-umgesetzt werden soll. Im Dialog bedeutet „Immer“, dass das Tool für den Rest der Session erlaubt bleibt. Alle
-Pfade sind auf den Workspace begrenzt (inkl. Symlinks).
-
-## Setup & Nutzung
+## Entwicklung
 
 ```bash
-cd crew
+git clone https://github.com/OhneKommentar/lumi-crew && cd lumi-crew
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
-ln -s "$PWD/bin/crew" ~/.local/bin/crew   # `crew` überall nutzbar (schon eingerichtet)
-
-crew providers                       # welche Provider sind nutzbar?
-crew -w ~/mein-projekt               # TUI starten
-crew -w ~/mein-projekt --mode plan   # erst nur planen
-crew -p "Bau X" --mode auto -w demo  # headless, ein Auftrag
-crew --model claude:sonnet           # alle Agenten auf ein Modell (nur dieser Lauf)
-crew -c                              # letzten Chat in diesem Ordner fortsetzen
-crew --resume                        # gespeicherten Chat auswählen
-crew chats -a                        # alle gespeicherten Chats auflisten
-cp crew.example.toml ~/mein-projekt/crew.toml   # Modelle pro Agent, MCP, Limits
+.venv/bin/python -m pytest -q
+bin/lumi-crew                    # Dev-Starter aus dem Checkout
 ```
 
-> `bin/crew` ruft die venv direkt über `PYTHONPATH` auf. Der Grund: macOS/iCloud markiert Dateien in `~/Documents`
-> manchmal als „hidden“, und Python ignoriert dann die `.pth`-Datei der Editable-Installation (`.venv/bin/crew` würde
-> mit `No module named 'crew'` scheitern).
+### Versionen & Releases
 
-### Bedienung der TUI
+Lumi Crew folgt [Semantic Versioning](https://semver.org/lang/de/). Jede Version ist ein Git-Tag `vX.Y.Z` mit
+GitHub-Release, die Änderungen stehen im [CHANGELOG](CHANGELOG.md). Neues Release:
 
-- `/` tippen zeigt alle Befehle mit Autocomplete (↑↓ wählen, Tab vervollständigt, Enter führt aus).
-- **`/agent`** zum Durchklicken: Agent wählen (mit aktuellem Modell daneben) → Provider (**agy, codex, claude,
-  ollama, lmstudio**, mit Erreichbarkeits-Check) → Modell. Die Modell-Listen werden **live** geholt: `agy models`,
-  `codex debug models`, `/v1/models` von Ollama/LM Studio. Für claude gibt es die Aliase opus/sonnet/haiku/fable,
-  weil die CLI keinen Listen-Befehl hat und die Aliase immer auf die neueste Version zeigen.
-- **↑ / ↓** blättert durch deine letzten Nachrichten und Befehle. Der angefangene Text bleibt als Entwurf erhalten.
-- Nachrichten, die du schickst, während die Crew arbeitet, landen in einer **Warteschlange** (`⏸ wartet` über der
-  Eingabe) und laufen danach automatisch. Mit **↑** im leeren Eingabefeld holst du die letzte wartende Nachricht
-  zurück zum Bearbeiten.
-- **Fenster rechts:** Sobald der Orchestrator delegiert, öffnet sich rechts ein Fenster pro Unter-Agent mit dem
-  **Auftrag (Prompt)**, den er bekommen hat, seinen Tool-Aufrufen live und der Laufzeit. Unabhängige Aufgaben
-  delegiert der Orchestrator **parallel**, dann stehen rechts mehrere Fenster. Fertige Fenster bleiben kurz stehen.
-- **Rückfragen als Auswahl:** Clarifier und Orchestrator fragen immer mit Antwortvorschlägen (Ziffer oder ↑↓/Enter),
-  dazu „✎ Eigene Antwort schreiben…“. Fragen paralleler Agenten kommen nacheinander.
-- **`/usage`:** CLI wählen und sehen, was crew in dieser Session verbraucht hat (Aufrufe, Tokens, bei claude die Kosten)
-  plus Konto/Limits: claude = Abo und Login-Ablauf (`claude auth status`), codex = 5-h-/Wochen-Limit aus dem
-  lokalen codex-Log. agy bietet keine Limit-Abfrage.
-- **Usage-Limit:** Läuft ein Modell ins Limit (Quota, 429, „usage limit“ …), fragt crew, ob ein anderes Modell
-  übernehmen soll. Es schlägt sofort erreichbare Alternativen vor (andere CLIs, lokale Ollama-/LM-Studio-Modelle) oder
-  öffnet die volle Provider/Modell-Auswahl. Der Agent macht danach mit seinem bisherigen Verlauf weiter.
-- **Modellwahl wird gespeichert:** Was du mit `/agent` oder `/model` auswählst, landet in
-  `~/.config/crew/state.json` und gilt beim nächsten Start wieder, in jedem Projektordner. Gespeicherte Auswahl schlägt
-  `crew.toml [agents]`. `crew --model X` gilt nur für diesen einen Lauf und ändert nichts. `/model reset` löscht die
-  gespeicherte Auswahl. Ein Wechsel wegen Usage-Limit gilt nur für die laufende Session.
-- **Chats werden gespeichert** (`~/.config/crew/chats/`), nach jeder Nachricht: der sichtbare Verlauf und der
-  Gesprächsstand des Orchestrators. **`/resume`** zeigt die Chats dieses Ordners (Titel, wann, wie viele Nachrichten,
-  optional alle Ordner) und setzt den gewählten fort. **`/new`** beginnt einen neuen Chat, der alte bleibt erhalten.
-  Von außen: `crew -c` setzt den letzten Chat des Ordners fort, `crew --resume` öffnet die Auswahl,
-  `crew chats` (`-a` für alle Ordner) listet sie. Auch `crew -p` speichert, und `crew -c -p "…"` macht im letzten
-  Chat weiter.
-- `/mode` öffnet die Modus-Auswahl, **Shift+Tab** schaltet direkt weiter.
-- Freigaben erscheinen inline über der Eingabe, mit Diff/Befehl: `1`/`y` ja · `2`/`a` immer · `3`/`n`/Esc nein.
-- Weitere Befehle: `/agents`, `/providers`, `/mcp`, `/model <agent|all> <provider:model>`, `/clear`, `/quit`.
-- Tasten: **Shift+Tab** Modus · **Esc** abbrechen · **Ctrl+C** beenden.
+1. Abschnitt `## [X.Y.Z]` im `CHANGELOG.md` schreiben
+2. `scripts/release.sh X.Y.Z`: Tests laufen lassen, Version in `pyproject.toml` setzen, committen, Tag pushen,
+   GitHub-Release erstellen und die Homebrew-Formel in
+   [OhneKommentar/homebrew-tap](https://github.com/OhneKommentar/homebrew-tap) aktualisieren
+3. Nutzer bekommen es mit `brew upgrade lumi-crew`
 
-### Researcher mit dem MCP-Server aus Lab 4
+## Lizenz
 
-```bash
-labs/.venv/bin/python labs/lab4_mcp/mcp_server.py      # Terminal 1
-crew -w demo                                                 # Terminal 2 (crew.toml mit [mcp.lab-websearch])
-› Recherchiere, was FastMCP ist, und schreib eine NOTES.md
-```
-
-## Demo-Szenarien
-
-1. **Gegenfragen:** `mach mir ein Spiel` → der Clarifier fragt Sprache, Art des Spiels, Steuerung … und dann baut
-   die Crew es.
-2. **Voller Ablauf:** `--mode auto`, `Baue wordcount.py wie wc, mit pytest-Tests` → Plan → Code → Review → Test (PASS).
-3. **Plan-Modus:** Shift+Tab bis `plan` → Auftrag → Plan wird gezeigt → „Accept-Edits“ wählen → Umsetzung.
-4. **Gemischte Modelle:** `/model coder codex`, `/model reviewer claude:sonnet` → in der Agenten-Leiste sieht man, wer
-   welches Modell nutzt.
-
-## Tests
-
-```bash
-pytest -q     # Parser, Permission-Matrix, Pfad-Jail, Delegation, Review-Limit, TUI (Textual Pilot)
-```
-
-## Projektstruktur
-
-```
-crew/
-  cli.py            Einstieg: TUI, headless (-p), `crew providers`
-  session.py        Session: Agenten, delegate, ask_user, Limits
-  config.py         crew.toml
-  permissions.py    Modi, Blockliste, Pfad-Jail
-  events.py         Events Agent → UI, UI-Interface
-  agents/           Agent-Loop, Rollen, System-Prompts (prompts/*.md)
-  providers/        agy · claude · codex (Text-Protokoll), Anthropic · Gemini · OpenAI-kompatibel (nativ)
-  tools/            Dateisystem, Shell, MCP-Client
-  tui/              Textual-App + Dialoge
-tests/
-```
-
-## Grenzen (MVP)
-
-- Shell-Befehle laufen im Workspace, sind aber nicht hart gesandboxt (ein `cd /` ist möglich). Deshalb gibt es
-  Freigaben in manual/accept-edits und die Blockliste in auto.
-- CLI-Provider sind zustandslos. Pro Aufruf wird der Verlauf als Transkript mitgeschickt und bei Bedarf gekürzt.
-- Keine Sessions zum Fortsetzen, keine parallelen Agenten.
-
-## Labs (Vorarbeiten)
-
-`labs/` enthält die Labore, auf denen crew aufbaut: **RAG** (`labs/lab_rag/rag_pdf.py`, PDF-Fragen mit FAISS + agy)
-und **MCP** (`labs/lab4_mcp/mcp_server.py`, FastMCP-Server mit `web_search`, `fetch_page`, `search_pdf`, den der
-Researcher von crew nutzt). Setup und Nutzung: `labs/README.md`.
+Keine Open-Source-Lizenz: © OhneKommentar, alle Rechte vorbehalten. Der Code ist öffentlich einsehbar und installierbar,
+eine Weiterverwendung braucht aber eine Erlaubnis.

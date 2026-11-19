@@ -1,11 +1,11 @@
 """
-crew: multi-agent coding CLI.
+Lumi Crew: multi-agent coding CLI (command: lumi-crew).
 
-  crew                         interactive TUI in the current directory
-  crew -w ./proj --mode auto   choose workspace and start mode
-  crew -p "build X"            headless: run one request, print the result
+  lumi-crew                        interactive TUI in the current directory
+  lumi-crew -w ./proj --mode auto   choose workspace and start mode
+  lumi-crew -p "build X"            headless: run one request, print the result
   crew providers               show which providers are usable
-  crew -c / crew --resume      continue the last chat / pick a saved chat
+  lumi-lumi-crew -c / --resume      continue the last chat / pick a saved chat
   crew chats [-a]              list saved chats (of this folder / all)
 """
 from __future__ import annotations
@@ -20,6 +20,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 
+from . import __version__
 from .agents.roles import ROLES
 from .config import MODES, load_config, load_saved_models
 from .events import Event, UI
@@ -31,7 +32,7 @@ AGENT_COLOR = "#9fb6d6"
 
 
 class ConsoleUI(UI):
-    """Plain terminal UI for headless runs (`crew -p`)."""
+    """Plain terminal UI for headless runs (`lumi-crew -p`)."""
 
     def __init__(self, interactive: bool, custom: dict | None = None):
         self.interactive = interactive
@@ -107,7 +108,7 @@ def escape(text: str) -> str:
 
 def cmd_providers(cfg, saved: dict | None = None):
     from rich.table import Table
-    t = Table(title="crew providers")
+    t = Table(title="Lumi Crew · providers")
     t.add_column("provider"), t.add_column("type"), t.add_column("status")
     for name in sorted(set(BUILTIN) | set(cfg.providers)):
         ok, msg = availability(name, cfg.providers)
@@ -139,7 +140,7 @@ async def run_headless(workspace, cfg, mode, prompt, use_saved=True, cont=False)
     chat.entries.append({"kind": "agent", "agent": "orchestrator", "model": session.spec_for("orchestrator"),
                          "text": result})
     chats.save(chat, session.orchestrator.messages)
-    console.print(Panel(Markdown(result or "(no answer)"), title="crew", border_style=AGENT_COLOR))
+    console.print(Panel(Markdown(result or "(no answer)"), title="Lumi Crew", border_style=AGENT_COLOR))
 
 
 def cmd_chats(workspace: Path, show_all: bool):
@@ -147,10 +148,10 @@ def cmd_chats(workspace: Path, show_all: bool):
     from . import chats
     found = chats.list_chats(None if show_all else workspace)
     if not found:
-        console.print("[dim]Keine gespeicherten Chats" + ("" if show_all else " in diesem Ordner (crew chats -a zeigt alle)")
+        console.print("[dim]Keine gespeicherten Chats" + ("" if show_all else " in diesem Ordner (lumi-crew chats -a zeigt alle)")
                       + ".[/]")
         return
-    t = Table(title="crew chats", show_lines=False)
+    t = Table(title="Lumi Crew · chats", show_lines=False)
     t.add_column("zuletzt"), t.add_column("Nachr.", justify="right"), t.add_column("Titel")
     if show_all:
         t.add_column("workspace")
@@ -161,18 +162,19 @@ def cmd_chats(workspace: Path, show_all: bool):
             cells.append(c.workspace.replace(home, "~"))
         t.add_row(*cells)
     console.print(t)
-    console.print("[dim]Fortsetzen: crew -c (letzter Chat) · crew --resume (Auswahl) · in der TUI /resume[/]")
+    console.print("[dim]Fortsetzen: lumi-crew -c (letzter Chat) · lumi-crew --resume (Auswahl) · in der TUI /resume[/]")
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="crew", description="Multi-agent coding CLI")
+    ap = argparse.ArgumentParser(prog="lumi-crew", description="Lumi Crew: multi-agent coding CLI")
     ap.add_argument("command", nargs="?", choices=["providers", "chats"],
                     help="`providers`: list usable providers · `chats`: list saved chats")
     ap.add_argument("-w", "--workspace", default=".", help="project directory (default: current dir)")
     ap.add_argument("-p", "--print", dest="prompt", help="run one request headless and print the result")
     ap.add_argument("--mode", choices=MODES, help="permission mode at start")
     ap.add_argument("--model", help='use this "provider:model" for all agents, e.g. claude:sonnet')
-    ap.add_argument("--config", help="path to crew.toml")
+    ap.add_argument("--config", help="path to lumi-crew.toml")
+    ap.add_argument("-V", "--version", action="version", version=f"Lumi Crew {__version__}")
     ap.add_argument("-c", "--continue", dest="cont", action="store_true", help="continue the last chat of this folder")
     ap.add_argument("--resume", action="store_true", help="pick a saved chat to continue")
     ap.add_argument("-a", "--all", action="store_true", help="with `chats`: show chats of all folders")

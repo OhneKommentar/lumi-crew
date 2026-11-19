@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from crew.agents.roles import ROLES
-from crew.config import Config
-from crew.events import UI
-from crew.permissions import PathError, Permissions, resolve_in_workspace
-from crew.providers.base import Message, Provider, Reply, ToolCall
-from crew.providers.text_tools import OMITTED, parse_reply, render_transcript
-from crew.session import Session
+from lumi_crew.agents.roles import ROLES
+from lumi_crew.config import Config
+from lumi_crew.events import UI
+from lumi_crew.permissions import PathError, Permissions, resolve_in_workspace
+from lumi_crew.providers.base import Message, Provider, Reply, ToolCall
+from lumi_crew.providers.text_tools import OMITTED, parse_reply, render_transcript
+from lumi_crew.session import Session
 
 
 # --------------------------------------------------------------------------- helpers
@@ -263,7 +263,7 @@ async def test_ask_user_passes_options(tmp_path):
 
 
 async def test_limit_error_asks_for_fallback_and_continues(tmp_path):
-    from crew.providers.base import LimitError
+    from lumi_crew.providers.base import LimitError
 
     class Limited(Provider):
         def __init__(self):
@@ -291,7 +291,7 @@ async def test_limit_error_asks_for_fallback_and_continues(tmp_path):
 
 
 async def test_limit_error_without_fallback_reports_error(tmp_path):
-    from crew.providers.base import LimitError
+    from lumi_crew.providers.base import LimitError
 
     class Limited(Provider):
         async def complete(self, system, messages, tools):
@@ -303,14 +303,14 @@ async def test_limit_error_without_fallback_reports_error(tmp_path):
 
 
 def test_limit_message_detection():
-    from crew.providers.base import is_limit_message
+    from lumi_crew.providers.base import is_limit_message
     assert is_limit_message("Error: You've hit your usage limit. Try again in 3h")
     assert is_limit_message("RESOURCE_EXHAUSTED: quota exceeded")
     assert not is_limit_message("SyntaxError in line 3")
 
 
 def test_usage_record_and_summary():
-    from crew import usage
+    from lumi_crew import usage
     usage.USAGE.clear()
     usage.record("claude", "haiku", input_tokens=1200, output_tokens=300, cost_usd=0.01, seconds=2)
     usage.record("claude", "haiku", input_tokens=800, output_tokens=200, seconds=1)
@@ -345,7 +345,7 @@ def test_broken_state_file_is_ignored(tmp_path, isolated_state):
 
 
 def test_chat_roundtrip(tmp_path, isolated_state):
-    from crew import chats
+    from lumi_crew import chats
     c = chats.new_chat(tmp_path)
     c.entries = [{"kind": "user", "text": "Bau mir   ein\nwc-Tool"}, {"kind": "agent", "agent": "orchestrator", "text": "ok"}]
     msgs = [Message("user", "Bau"), Message("assistant", "", [ToolCall("1", "delegate", {"agent": "coder"})], raw={"x": 1}),

@@ -1,32 +1,40 @@
 [project]
-name = "crew"
+name = "lumi-crew"
 version = "0.1.0"
-description = "Multi-agent coding CLI: orchestrator + clarifier, planner, coder, reviewer, tester, researcher"
+description = "Lumi Crew: multi-agent coding CLI (orchestrator + clarifier, planner, coder, reviewer, tester, researcher)"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "OhneKommentar" }]
+license = "LicenseRef-Proprietary"
+classifiers = ["Environment :: Console", "Programming Language :: Python :: 3", "Private :: Do Not Upload"]
 dependencies = [
-  "textual>=0.80",
-  "httpx",
-  "fastmcp>=2",
-  "anthropic",
-  "google-genai",
-  "openai",
+  "textual>=8.2,<9",
+  "httpx>=0.28,<1",
+  "fastmcp>=4.2,<5",
+  "anthropic>=2.10,<3",
+  "google-genai>=3.4,<4",
+  "openai>=3.53,<4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/OhneKommentar/lumi-crew"
+Changelog = "https://github.com/OhneKommentar/lumi-crew/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]
 
 [project.scripts]
-crew = "crew.cli:main"
+lumi-crew = "lumi_crew.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["crew*"]
+include = ["lumi_crew*"]
 
 [tool.setuptools.package-data]
-"crew.agents" = ["prompts/*.md"]
+"lumi_crew.agents" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

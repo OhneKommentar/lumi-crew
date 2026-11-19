@@ -1,4 +1,4 @@
-# crew configuration: copy to ./crew.toml (in the workspace) or ~/.config/crew/crew.toml
+# Lumi Crew configuration: copy to ./lumi-crew.toml (in the project folder) or ~/.config/lumi-crew/lumi-crew.toml
 
 # Model for every agent unless overridden below. Format: "provider:model" ("provider" alone = its default model)
 default = "agy:gemini-3.8-flash-medium"
@@ -23,8 +23,8 @@ max_review_rounds = 3     # reviewer runs per user request
 shell_timeout = 120       # seconds per shell command
 
 # MCP servers: their tools are given to the researcher agent
-[mcp.lab-websearch]
-url = "http://localhost:8000/mcp"       # labs/lab4_mcp/mcp_server.py
+[mcp.websearch]
+url = "http://localhost:8000/mcp"       # any MCP server, e.g. a FastMCP web-search server
 
 # Custom providers (built-in: agy, claude, codex, anthropic, gemini, openai, lmstudio, ollama)
 [providers.openrouter]

@@ -15,22 +15,26 @@ from textual.widgets import Input, Markdown, OptionList, Static
 from textual.widgets.option_list import Option
 
 # ----------------------------------------------------------------------------- palette
-BG = "#1f232b"        # blue-grey background
-PANEL = "#2a2f39"     # highlighted rows
-LINE = "#c8cdd6"      # thin white-ish lines
-FG = "#e3e6eb"
-DIM = "#8a919d"
-ACCENT = "#9fb6d6"    # soft blue
-USER = "#e9c46a"      # own messages
-OK = "#9cc49c"
-ERR = "#e08c8c"
-WARN = "#e0c48c"
+# Lumi brand colors (dark scheme of the Lumi Learning app theme)
+BG = "#1A1C18"        # surfaceDark
+PANEL = "#313229"     # surfaceContainerHighDark (highlighted rows)
+LINE = "#C7C9BD"      # onSurfaceVariantDark (thin light lines)
+FG = "#E3E5D7"        # onSurfaceDark
+DIM = "#909488"       # outlineDark
+ACCENT = "#B7BBA3"    # primary (dark) – sage, agent names
+LIME = "#E9EDC9"      # primaryContainer – the light green of the logo
+OLIVE = "#6B705C"     # brand primary – the dark green of the logo
+USER = "#D9A441"      # mustard – own messages
+USER_BG = "#2C2818"   # mustard tint on the dark surface
+OK = "#7B9A65"        # sage green
+ERR = "#E29E8F"       # error
+WARN = "#CB5F45"      # terracotta
 
-CREW_THEME = Theme(
-    name="crew", dark=True,
-    primary=ACCENT, secondary=DIM, accent=ACCENT, foreground=FG,
+LUMI_THEME = Theme(
+    name="lumi", dark=True,
+    primary=ACCENT, secondary=OLIVE, accent=LIME, foreground=FG,
     background=BG, surface=BG, panel=PANEL, boost=PANEL,
-    success=OK, error=ERR, warning=WARN,
+    success=OK, error=ERR, warning=USER,
 )
 
 COMMANDS = [
@@ -114,7 +118,7 @@ class Picker(Vertical):
         body_box = self.query_one("#picker-body")
         body_box.display = body is not None
         if body is not None:
-            content = Syntax(body, lexer, theme="nord", background_color=BG, word_wrap=True) if lexer else body
+            content = Syntax(body, lexer, theme="gruvbox-dark", background_color=BG, word_wrap=True) if lexer else body
             self.query_one("#picker-body-text", Static).update(content)
             body_box.scroll_home(animate=False)
         lst = self.query_one(OptionList)
